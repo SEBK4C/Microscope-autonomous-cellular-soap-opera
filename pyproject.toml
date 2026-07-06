@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soapscope"
+version = "0.1.0"
+description = "Autonomous cellular soap opera: track microbes on a microscope slide and auto-caption their lives like a Gary Larson cartoon."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "SoapScope contributors" }]
+dependencies = [
+    "numpy>=1.23",
+    "Pillow>=9.0",
+]
+
+[project.optional-dependencies]
+# Heavy / hardware backends, swapped in during later autoresearch iterations.
+# FastSAM/MobileSAM/SAM via ultralytics (auto-downloads weights). On a GPU-less
+# box install CPU torch first: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+sam = ["ultralytics"]
+# Local LLM narrator via HF transformers (+ CPU torch, see the [sam] note above).
+llm = ["transformers", "accelerate"]
+# VLM narrator: grounds captions in appearance via BLIP (fast) / SmolVLM.
+vlm = ["transformers", "accelerate"]
+video = ["imageio", "imageio-ffmpeg", "opencv-python"]  # real video I/O
+hardware = ["pyserial"]                # real CNC stage over serial
+dev = ["pytest"]
+
+[project.scripts]
+soapscope = "soapscope.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["soapscope*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

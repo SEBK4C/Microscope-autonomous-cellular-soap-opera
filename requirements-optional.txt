@@ -1,0 +1,19 @@
+# Optional backends, added incrementally by the autoresearch loop.
+# Install only what a given experiment needs.
+
+# --- SOTA segmentation + tracking (SAM2 / SAM3) ---
+# torch
+# torchvision
+# git+https://github.com/facebookresearch/sam2.git
+
+# --- Local LLM / VLM captioning ---
+# llama-cpp-python
+# transformers
+
+# --- Real video I/O (mp4, webcam) ---
+# imageio
+# imageio-ffmpeg
+# opencv-python
+
+# --- Real CNC stage over serial ---
+# pyserial

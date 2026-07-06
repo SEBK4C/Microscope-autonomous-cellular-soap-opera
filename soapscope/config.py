@@ -1,0 +1,133 @@
+"""Configuration objects for the whole pipeline.
+
+Every tunable knob the autoresearch loop might sweep lives here, so an
+experiment is just "make a PipelineConfig, run it, score it".
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, asdict
+from typing import Optional
+import json
+
+
+@dataclass
+class WorldConfig:
+    """Synthetic microbe world (our deterministic, ground-truth testbed)."""
+
+    height: int = 360
+    width: int = 540
+    n_start: int = 7          # microbes visible at t=0
+    max_microbes: int = 14
+    spawn_prob: float = 0.06  # chance/frame a new microbe drifts in from an edge
+    divide_prob: float = 0.010  # chance/frame a microbe undergoes mitosis
+    flow: float = 0.35        # global drift (the "current" in the flow cell), px/frame
+    brownian: float = 0.9     # random-walk jitter magnitude
+    seed: int = 7
+    style: str = "darkfield"  # darkfield (bright microbes/dark bg) | brightfield (dark microbes/light bg)
+    world_scale: float = 1.0  # slide size / sensor size; >1 => world larger than the camera (moving stage)
+
+
+@dataclass
+class SegmentConfig:
+    backend: str = "classical"   # classical | sam2 | sam3  (only classical implemented today)
+    threshold: float = 0.28      # foreground threshold on the normalized "microbe-ness" map
+    min_area: int = 25           # drop specks smaller than this (px)
+    max_area: int = 20000
+    blur: int = 1                # box-blur radius pre-threshold (denoise)
+    polarity: str = "auto"       # auto (detect per frame) | bright (dark-field/fluor) | dark (bright-field)
+    adaptive: bool = True        # local-mean thresholding — robust to gradients & phase halos
+    adaptive_radius: int = 25    # neighbourhood radius for adaptive background estimate (px)
+    median: int = 0              # 3 = 3x3 median denoise pre-threshold (kills compression speckle)
+    open_iter: int = 0           # morphological opening iterations on the mask (despeckle)
+    temporal: bool = False       # motion foreground: |frame - running background| (static-bg clips)
+    bg_alpha: float = 0.04       # EMA rate of the temporal background model (lower = longer memory)
+    hybrid: bool = False         # temporal: keep whole-body spatial score, gated by motion (no crescents)
+    motion_gate: float = 0.12    # motion level that counts as "active" for the hybrid gate
+    motion_dilate: int = 3       # dilate the motion gate this many px to cover whole bodies
+    watershed: bool = False      # split touching microbes via distance-transform markers (round cells)
+    watershed_seed_frac: float = 0.55  # seed core = dist >= frac * component peak (higher = split more)
+    watershed_max_dist: int = 24 # max distance-transform depth (~largest microbe radius, px)
+    # --- SAM backend (used when backend in {sam2, sam3}) ---
+    sam_backend: str = "auto"    # auto | fastsam | mobile_sam | ultralytics_sam | segment_anything
+    sam_model: str = "FastSAM-s.pt"  # model name/path (ultralytics auto-downloads known names)
+    sam_imgsz: int = 512         # inference size (smaller = faster on CPU)
+    sam_conf: float = 0.35       # detection/quality confidence threshold
+
+
+@dataclass
+class TrackConfig:
+    max_dist: float = 55.0       # gating distance for matching (px)
+    max_missed: int = 8          # frames a track survives without a detection before it dies
+    min_hits: int = 2            # detections before a track is "confirmed" / eligible for drama
+    assignment: str = "hungarian"  # greedy | hungarian (optimal min-cost assignment)
+    use_kalman: bool = True        # constant-velocity Kalman predict/correct (halves ID switches)
+    kalman_q: float = 1.0        # Kalman process noise (higher = trust motion model less)
+    kalman_r: float = 4.0        # Kalman measurement noise (higher = trust detections less)
+
+
+@dataclass
+class DramaConfig:
+    backend: str = "template"    # template | llm
+    caption_every: int = 6       # emit a fresh narrator line every N frames
+    seed: int = 7
+    spice: float = 1.0           # 0..2, how melodramatic the templates get
+    star_lock: bool = True       # narrate the microbe the camera follows (coherent with the crosshair)
+    # --- local LLM narrator (backend="llm") ---
+    llm_model: str = "Qwen/Qwen2.5-0.5B-Instruct"  # small HF instruct model (CPU-runnable)
+    llm_max_tokens: int = 48     # cap generation length (latency ∝ tokens)
+    llm_temperature: float = 0.9 # creativity of the narration
+    # --- vision-language narrator (backend="vlm"): grounds captions in pixels ---
+    vlm_model: str = "Salesforce/blip-image-captioning-base"  # fast, grounded CPU captioner
+    vlm_max_tokens: int = 40
+    # --- season memory: serialized-show lore across episodes ---
+    season_path: str = ""        # JSON file; empty = disabled (no recap/cliffhanger/persistence)
+    recap_frames: int = 12       # show the "Previously on…" recap for this many opening frames
+    cliffhanger_frames: int = 10  # append this many "Next time…" cliffhanger cards at the end
+
+
+@dataclass
+class StageConfig:
+    enabled: bool = True
+    follow: str = "director"     # director (most dramatic) | none | id:<n>
+    deadzone: float = 20.0       # don't move the stage until the star drifts this far off-centre
+    max_step: float = 48.0       # max stage move per frame (px), models CNC feed-rate limit
+    hysteresis: float = 3.0      # a challenger must be this much more dramatic to steal the camera
+    lead: float = 4.0            # aim this many frames ahead along the star's velocity (feedforward)
+
+
+@dataclass
+class RenderConfig:
+    enabled: bool = True
+    scale: int = 1               # upscale factor for the output
+    show_masks: bool = True
+    show_tracks: bool = True
+    show_stage: bool = True
+    caption_lines: int = 2
+    fps: int = 12
+
+
+@dataclass
+class PipelineConfig:
+    world: WorldConfig = field(default_factory=WorldConfig)
+    segment: SegmentConfig = field(default_factory=SegmentConfig)
+    track: TrackConfig = field(default_factory=TrackConfig)
+    drama: DramaConfig = field(default_factory=DramaConfig)
+    stage: StageConfig = field(default_factory=StageConfig)
+    render: RenderConfig = field(default_factory=RenderConfig)
+    n_frames: int = 140
+
+    def to_json(self, **kw) -> str:
+        return json.dumps(asdict(self), **kw)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PipelineConfig":
+        return cls(
+            world=WorldConfig(**d.get("world", {})),
+            segment=SegmentConfig(**d.get("segment", {})),
+            track=TrackConfig(**d.get("track", {})),
+            drama=DramaConfig(**d.get("drama", {})),
+            stage=StageConfig(**d.get("stage", {})),
+            render=RenderConfig(**d.get("render", {})),
+            n_frames=d.get("n_frames", 140),
+        )
