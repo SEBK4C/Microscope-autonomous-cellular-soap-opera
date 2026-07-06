@@ -31,7 +31,7 @@ video → segment → track → features → drama → stage → render
 |-------|-----------------------|----------------|
 | **Video** | synthetic world + ground truth; PNG-frame folders | real microscopy clips, webcam |
 | **Segment** | classical numpy CC (polarity / adaptive / temporal) | **FastSAM / MobileSAM / SAM** (drop-in; see below) |
-| **Track** | greedy nearest-neighbour, stable IDs | Kalman + Hungarian, SAM3 video propagation |
+| **Track** | Kalman + Hungarian, stable IDs (MOTA-measured) | SAM3 video propagation |
 | **Drama** | offline template narrator with feud/romance memory | **local LLM narrator** (drop-in; see below) → VLM |
 | **Stage** | `SimulatedStage` + JSON-lines protocol | real **CNC over serial** |
 | **Render** | annotated GIF + transcript | mp4, live web viewer |

@@ -12,6 +12,8 @@ import math
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 
 @dataclass
 class Metrics:
@@ -27,6 +29,8 @@ class Metrics:
     gt_recall: Optional[float]      # fraction of visible GT microbes covered
     fragmentation: Optional[float]  # tracks / GT-ids (1.0 ideal)
     score: float
+    mota: Optional[float] = None    # Multi-Object Tracking Accuracy (GT-only; higher better)
+    id_switches: Optional[int] = None  # identity switches over the clip (lower better)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -34,13 +38,54 @@ class Metrics:
     def summary(self) -> str:
         rec = "n/a" if self.gt_recall is None else f"{self.gt_recall:.2f}"
         frag = "n/a" if self.fragmentation is None else f"{self.fragmentation:.2f}"
+        mota = "n/a" if self.mota is None else f"{self.mota:.2f}"
+        idsw = "n/a" if self.id_switches is None else str(self.id_switches)
         return (
             f"score={self.score:.3f} | fps={self.fps:.1f} | "
-            f"recall={rec} | frag={frag} | "
+            f"recall={rec} | frag={frag} | mota={mota} idsw={idsw} | "
             f"tracks={self.n_tracks_total} meanlen={self.mean_track_len:.1f} | "
             f"captions={self.caption_count} variety={self.caption_variety:.2f} "
             f"kinds={self.kind_variety}"
         )
+
+
+def mota_and_idsw(gts, frame_tracks, match_radius: float):
+    """Standard MOTA + identity-switch count against ground truth.
+
+    MOTA = 1 - (FN + FP + IDSW) / GT_total, where GT<->track matching each frame
+    is optimal (Hungarian) within ``match_radius``. Returns (mota, idsw, fp, fn).
+    """
+    from .vision.assign import linear_sum_assignment
+    prev: Dict[int, int] = {}          # gt_id -> track_id from the last frame it matched
+    idsw = fp = fn = gt_total = 0
+    for frame_i, gt in enumerate(gts):
+        if gt is None:
+            continue
+        items = getattr(gt, "items", {})
+        gt_ids = list(items.keys())
+        gt_pts = [(items[g][0], items[g][1]) for g in gt_ids]
+        tks = frame_tracks[frame_i] if frame_i < len(frame_tracks) else []
+        tk_ids = [t[0] for t in tks]
+        tk_pts = [(t[1], t[2]) for t in tks]
+        gt_total += len(gt_ids)
+        matched: Dict[int, int] = {}
+        if gt_ids and tk_ids:
+            cost = np.zeros((len(gt_ids), len(tk_ids)))
+            for i, (gy, gx) in enumerate(gt_pts):
+                for j, (ty, tx) in enumerate(tk_pts):
+                    cost[i, j] = math.hypot(gy - ty, gx - tx)
+            rows, cols = linear_sum_assignment(cost)
+            for i, j in zip(rows, cols):
+                if cost[i, j] <= match_radius:
+                    matched[gt_ids[i]] = tk_ids[j]
+        fn += len(gt_ids) - len(matched)
+        fp += len(tk_ids) - len(set(matched.values()))
+        for g, tk in matched.items():
+            if g in prev and prev[g] != tk:
+                idsw += 1
+            prev[g] = tk
+    mota = 1.0 - (fn + fp + idsw) / max(1, gt_total)
+    return mota, idsw, fp, fn
 
 
 def compute_metrics(
@@ -68,6 +113,8 @@ def compute_metrics(
     # Ground-truth-based scores (synthetic world only).
     gt_recall: Optional[float] = None
     fragmentation: Optional[float] = None
+    mota: Optional[float] = None
+    id_switches: Optional[int] = None
     if gts and any(g is not None for g in gts):
         covered, total = 0, 0
         gt_ids = set()
@@ -84,6 +131,7 @@ def compute_metrics(
                     covered += 1
         gt_recall = covered / total if total else 0.0
         fragmentation = n_tracks / max(1, len(gt_ids))
+        mota, id_switches, _fp, _fn = mota_and_idsw(gts, frame_tracks, match_radius)
 
     # ---- single scalar objective (higher is better) --------------------
     track_stability = _clip(mean_len / (0.5 * max(1, n_frames)), 0, 1)
@@ -98,6 +146,7 @@ def compute_metrics(
         n_tracks_total=n_tracks, mean_track_len=mean_len, max_track_len=max_len,
         caption_count=n_caps, caption_variety=variety, kind_variety=kind_variety,
         gt_recall=gt_recall, fragmentation=fragmentation, score=score,
+        mota=mota, id_switches=id_switches,
     )
 
 

@@ -53,9 +53,13 @@ class SegmentConfig:
 
 @dataclass
 class TrackConfig:
-    max_dist: float = 55.0       # gating distance for greedy nearest-neighbour matching (px)
+    max_dist: float = 55.0       # gating distance for matching (px)
     max_missed: int = 8          # frames a track survives without a detection before it dies
     min_hits: int = 2            # detections before a track is "confirmed" / eligible for drama
+    assignment: str = "hungarian"  # greedy | hungarian (optimal min-cost assignment)
+    use_kalman: bool = True        # constant-velocity Kalman predict/correct (halves ID switches)
+    kalman_q: float = 1.0        # Kalman process noise (higher = trust motion model less)
+    kalman_r: float = 4.0        # Kalman measurement noise (higher = trust detections less)
 
 
 @dataclass

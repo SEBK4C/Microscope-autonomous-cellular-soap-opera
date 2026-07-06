@@ -16,31 +16,29 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
-   (Hungarian) assignment; add a proper MOTA / ID-switch metric using GT.
-   Reduces ID switches on crossings and further de-fragments real footage.
-   (No scipy — implement a compact Hungarian or Kalman-gated greedy.)
+1. **True moving-crop stage.** Make the world larger than the sensor so the CNC
+   actually pans across a slide and microbes leave/enter the sensor; the stage
+   controller drives the crop and tracking is stage-motion-compensated. Directly
+   demonstrates the brief's core premise (a stage that *follows* microbes).
+   *Metric:* star-stays-in-frame %; recall under motion.
 2. **VLM captioner.** Feed cropped microbe thumbnails to a small local
    vision-language model (SmolVLM / moondream via transformers) so captions are
    grounded in what the microbe actually looks like, not just the beat label.
    Keep template + LLM as fallbacks. *Metric:* human spot-check; latency.
-3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+3. **Touching-microbe segmentation.** Distance-transform + watershed split so
+   two collided microbes don't merge into one track. *Metric:* fragmentation.
+4. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-4. **Touching-microbe segmentation.** Distance-transform + watershed split so
-   two collided microbes don't merge into one track. *Metric:* fragmentation.
-5. **True moving-crop stage.** Make the world larger than the sensor so the CNC
-   actually pans across a slide and microbes leave/enter the sensor; add
-   stage-motion-compensated tracking (temporal mode then needs bg compensation).
+5. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
+   that streams annotated frames + captions (near-real-time from webcam).
 6. **Season memory.** Persist character bios + relationships to disk across
    episodes; "Previously, on…" recaps and end-of-episode cliffhangers.
-7. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
-   that streams annotated frames + captions (near-real-time from webcam).
-8. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+7. **Adaptive by default?** auto+adaptive beat the dark-field default on the
    synthetic bench (0.96 vs 0.93); consider making adaptive the default once
    validated on more real clips. *Metric:* synthetic score; real-clip frag.
-9. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+8. **TTS narrator** (optional): speak the caption bar with an announcer voice.
 
 ---
 
@@ -352,3 +350,53 @@ bug. Logged so a future clip-quality heuristic could auto-pick the mode.
 
 **Next:** backlog #1 — Kalman-predicted + Hungarian tracking (fewer ID switches
 on crossings; a proper MOTA metric).
+
+---
+
+## 2026-07-06 — Iteration 6: Kalman + Hungarian tracking + MOTA metric
+
+**Picked:** backlog #1. Reduce identity switches so microbes stay the *same
+character* across crossings (core to the soap-opera premise).
+
+**Built (all pure numpy, no scipy):**
+
+- **`vision/assign.py`** — a compact Jonker–Volgenant `linear_sum_assignment`
+  (optimal Hungarian). Verified against brute force on 300 random matrices.
+- **Kalman filter** (constant-velocity, state `[y,x,vy,vx]`) in `track.py`, and
+  a refactored `Tracker` with pluggable matching (`greedy` | `hungarian`) and
+  optional Kalman (`use_kalman`). The old greedy+EMA path is preserved exactly.
+- **MOTA + ID-switch metric** (`metrics.mota_and_idsw`), GT-matched optimally per
+  frame; reported in `Metrics` (the `score` formula is unchanged for
+  comparability). 6 new tests incl. a crossing that keeps its identity. **44 green.**
+
+**Measured — Kalman is the lever:**
+
+| tracker (synthetic, 80f) | idsw | mota | frag | meanlen | score |
+|---|---|---|---|---|---|
+| greedy (old default) | 20 | 0.72 | 1.07 | 41.6 | 0.951 |
+| hungarian only | 20 | 0.72 | 1.00 | 44.4 | 0.958 |
+| greedy + kalman | 12 | 0.73 | 1.00 | 44.4 | 0.940 |
+| **hungarian + kalman (new default)** | **10** | **0.74** | 0.93 | 47.6 | 0.906 |
+
+On a **crowded/high-jitter** scene (12–18 microbes): idsw **22 → 13** and score
+**0.911 → 0.915** for hungarian+kalman. On the **real ciliate clip**: identical
+(13 tracks, meanlen 18.8) — its temporal segmentation already yields clean,
+well-separated detections, so the matcher has nothing to fix there.
+
+**Decision — made hungarian+kalman the default.** ID switches roughly halved
+(20→10; 22→13 crowded), MOTA/track-length/fragmentation all improve, ~neutral
+fps (25, still 2× real-time), neutral on real footage. **Honest caveat:** the
+composite `score` *dips* on the easy bench (0.951→0.906) — not because tracking
+got worse but because the **caption-variety term rewards character churn**, and
+stabler IDs mean fewer new-character intros. That's a mild misalignment in the
+score for a *soap opera* (you want recurring characters), not a tracker
+regression; MOTA/idsw (the right metric here) clearly improve. Logged; a future
+tweak could add an idsw term to `score`.
+
+**What worked:** Kalman prediction gates crossings correctly (hungarian alone
+didn't move idsw — greedy gating already matched; the win is better prediction).
+**What didn't move:** the real clip — already easy for the matcher.
+
+**Next:** backlog #1 — the true moving-crop CNC stage (world larger than the
+sensor; the stage pans and microbes enter/leave frame — the brief's core premise
+made literal).

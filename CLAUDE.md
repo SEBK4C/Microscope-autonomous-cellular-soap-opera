@@ -39,7 +39,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 |--------|------|---------------|
 | `soapscope/video/synthetic.py` | deterministic dark/bright-field world + ground truth | real clips via `video/io.load_video` / `load_frames_dir` |
 | `soapscope/vision/segment.py` | `ClassicalSegmenter` (numpy CC; polarity/adaptive/temporal/hybrid) + `SamSegmenter` (FastSAM/MobileSAM/SAM via `sam_backend.py`) | SAM2 video propagation; GPU |
-| `soapscope/vision/track.py` | greedy NN tracker, stable ids, enter/exit events | Kalman/Hungarian, SAM3 video propagation |
+| `soapscope/vision/track.py` | Kalman + Hungarian tracker (`assign.py`), stable ids, enter/exit | SAM3 video propagation |
 | `soapscope/vision/features.py` | trajectories → dramatic *beats* | richer interaction model |
 | `soapscope/drama/characters.py` | persistent names + soap archetypes | — |
 | `soapscope/drama/captioner.py` | `TemplateCaptioner` (instant, offline) + `LLMCaptioner` (local HF LLM via `llm_backend.py`) | grounded VLM captions |
@@ -47,7 +47,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | `soapscope/stage/controller.py` | "director" picks the star, rate-limited follow | closed-loop focus/zoom |
 | `soapscope/render/overlay.py` | masks, names, trails, CNC viewport, caption bar | mp4 output, live web viewer |
 | `soapscope/pipeline.py` | wires it all together | — |
-| `soapscope/metrics.py` | the autoresearch objective (`score`) | funniness / MOTA metrics |
+| `soapscope/metrics.py` | autoresearch `score` + MOTA / ID-switch (GT) | funniness metrics |
 | `soapscope/autoresearch/loop.py` | hill-climb over `PipelineConfig` | smarter proposers |
 
 Every tunable lives in `soapscope/config.py` (`PipelineConfig`), so an
