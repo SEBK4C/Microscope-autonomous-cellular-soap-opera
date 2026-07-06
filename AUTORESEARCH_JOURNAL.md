@@ -23,9 +23,10 @@ line into a dated entry below.
 2. **Moving-stage residuals** (from iter 7; tighter centering done in iter 14):
    temporal-mode background compensation so the moving crop can use motion
    segmentation; real-video digital-pan follow. *Metric:* star_offset; recall.
-3. **Star/narrator coherence:** the stage sometimes crosshairs one microbe while
-   the caption stars another (different selection paths). Share the pick or name
-   the crosshaired one. *Metric:* fraction of frames where star_id == narrated.
+3. **Push coherence past ~65%** (iter 15 lifted it there): remaining misses are
+   when the star is idle (no beat → global fallback) or only a secondary subject.
+   Options: synthesise a star-focused beat when idle, or converge the two star
+   picks at the source. *Metric:* caption_coherence (now reported).
 4. **TTS narrator** (optional): speak the caption bar with an announcer voice.
 
 ---
@@ -747,3 +748,65 @@ different paths. Filed as backlog #3 (star/narrator coherence).
 
 **Next:** backlog #1 — SAM speed / SAM2 video propagation (blocked on reachable
 HF weights + a GPU path; today ~0.03 fps CPU).
+
+---
+
+## 2026-07-06 — Iteration 15: star/narrator coherence — narrate who the camera follows
+
+**Picked:** backlog #3. The iter-14 proof frame exposed it perfectly — the CNC
+crosshair sat on *Amoebini* while the caption starred *Sir Sterling Vacuole*.
+The camera and the narrator were choosing the protagonist by **different paths**:
+the stage picks a drama-EMA-smoothed, hysteresis-sticky star; the captioner
+narrated `feats.top()`, the single highest-scoring beat *this frame*. So the
+microbe we're watching and the microbe we're hearing about routinely disagreed.
+
+**Measured the bug first** (fraction of caption ticks whose protagonist ==
+the followed star, 4 seeds):
+
+| path | protagonist-match | star-involved |
+|------|-------------------|---------------|
+| non-moving | 35.7 % | 46.4 % |
+| moving | 44.4 % | 58.3 % |
+
+So ~2 in 3 captions talked about a microbe that *wasn't* the star. 🫠
+
+**Change:** star-aware beat selection. `FrameFeatures.top(star_id)` now prefers
+the highest-scoring beat the star *leads*, then any beat it's *in*, then the
+global top (idle-star fallback; backwards-compatible when `star_id=None`).
+Threaded `star_id` through every captioner (`update(..., star_id=)`) behind a
+`DramaConfig.star_lock` flag (default **on**), and **reordered the pipeline** so
+the stage picks the star *before* the caption is written — in both `_step_frame`
+(batch + live) and `run_moving`. The crosshair is now the protagonist.
+
+**Result** (4 seeds, star_lock off→on):
+
+| path | coherence | variety | score |
+|------|-----------|---------|-------|
+| non-moving | 35.7 → **58.9 %** | 1.000 → 0.983 | 0.961 → 0.960 |
+| moving | 44.4 → **68.1 %** | 1.000 → 1.000 | 0.667 → 0.668 |
+
+**+23–24 points of coherence for a flat score** (Δ ≤ 0.001, deep in fps noise).
+
+**Kept the benchmark honest.** Focusing on one star makes its beats recur, which
+first cost ~0.04 caption_variety (0.20·variety in `score`). Fixed that at the
+root, not by gaming: (1) a **no-repeat guard** in `_render_beat` (re-roll a line
+we used in the last 4), and (2) **bigger pools for the beats a followed star
+actually hits** — CHASE (the show's workhorse, 13/24 captions on seed 7) and
+ENCOUNTER 4→8 each, plus 4 new WANDER/LINGER lines. Net variety loss vanished
+(−0.017 non-moving, 0 moving); the wider pools even lifted the baseline.
+
+**New metric.** Added `caption_coherence` to `Metrics` (reported like MOTA, not
+in `score`) so the objective is now *aware* of coherence — you can't optimise
+what you don't measure. Seed-7 bench line: `coherence 0.52 → 0.83`.
+
+**Verified visually:** `docs/coherence_demo.png` — the exact iter-14 scene, now
+coherent: crosshair on **Sir Sterling Vacuole**, caption *"Sir Sterling Vacuole
+pursues Count Chad Amoebini across the slide…"*. Also fixed a cosmetic ordinal
+bug the proof surfaced ("its 3th act" → "escalates to act 3"). **70 green.**
+
+**What worked:** measuring the bug before touching code — 35 % is a number, "the
+camera and narrator disagree" is a vibe. **What it taught:** two independent
+selectors optimising the "same" thing (drama) still diverge (smoothed vs
+instantaneous); coherence is its own axis and deserves its own metric.
+
+**Next:** backlog #1 — SAM speed / SAM2 video propagation (GPU/HF-weights gated).

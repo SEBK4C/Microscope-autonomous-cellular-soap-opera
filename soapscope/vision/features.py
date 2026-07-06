@@ -28,8 +28,22 @@ class FrameFeatures:
     frame_idx: int
     beats: List[Beat]
     per_track: Dict[int, dict]       # tid -> {speed, heading, area, nearest, nearest_dist}
-    def top(self) -> Optional[Beat]:
-        return max(self.beats, key=lambda b: b.score) if self.beats else None
+
+    def top(self, star_id: Optional[int] = None) -> Optional[Beat]:
+        """The beat to narrate. With ``star_id`` (the microbe the camera is
+        following), prefer a beat that microbe *leads* — then any beat it's in —
+        so the narration is about who we're watching. Falls back to the juiciest
+        beat overall when the star is idle or unset (backwards-compatible)."""
+        if not self.beats:
+            return None
+        if star_id is not None:
+            lead = [b for b in self.beats if b.subjects and b.subjects[0] == star_id]
+            if lead:
+                return max(lead, key=lambda b: b.score)
+            involved = [b for b in self.beats if star_id in b.subjects]
+            if involved:
+                return max(involved, key=lambda b: b.score)
+        return max(self.beats, key=lambda b: b.score)
 
 
 def _radius(area: float) -> float:

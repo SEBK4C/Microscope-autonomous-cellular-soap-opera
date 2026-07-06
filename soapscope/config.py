@@ -72,6 +72,7 @@ class DramaConfig:
     caption_every: int = 6       # emit a fresh narrator line every N frames
     seed: int = 7
     spice: float = 1.0           # 0..2, how melodramatic the templates get
+    star_lock: bool = True       # narrate the microbe the camera follows (coherent with the crosshair)
     # --- local LLM narrator (backend="llm") ---
     llm_model: str = "Qwen/Qwen2.5-0.5B-Instruct"  # small HF instruct model (CPU-runnable)
     llm_max_tokens: int = 48     # cap generation length (latency ∝ tokens)

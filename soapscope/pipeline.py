@@ -74,9 +74,12 @@ class Pipeline:
         confirmed = self.tracker.confirmed_tracks()
         feats = self.analyzer.step(
             i, confirmed, self.tracker.entered, self.tracker.exited)
-        caption = self.captioner.update(i, feats, self.registry,
-                                        frame=frame, tracks=confirmed)
+        # Pick the star first, then narrate it — so the caption is about the
+        # microbe the camera is actually following (crosshair == protagonist).
         step = self.controller.step(confirmed, feats)
+        caption = self.captioner.update(i, feats, self.registry,
+                                        frame=frame, tracks=confirmed,
+                                        star_id=step.star_id)
         return seg, confirmed, feats, caption, step
 
     def stream(self, frames: Iterable):
@@ -160,12 +163,16 @@ class Pipeline:
                     annotated.append(render_frame(lf, lseg, ltr, self.registry,
                                                   cliff_ev, lstep, cfg.render, n + k))
 
+        star_at = {r.frame_idx: r.star_id for r in records}
         metrics = compute_metrics(
             n_frames=len(records), elapsed_s=elapsed,
             detections_per_frame=detections_per_frame,
             track_lengths=track_lengths, frame_tracks=frame_tracks, gts=gts,
             caption_headlines=[e.headline for e in self.captioner_transcript()],
             caption_kinds=[e.kind for e in self.captioner_transcript()],
+            caption_stars=[((e.subjects[0] if e.subjects else None),
+                            star_at.get(e.frame_idx))
+                           for e in self.captioner_transcript()],
         )
         transcript = (([recap_ev] if recap_ev else [])
                       + self.captioner_transcript()
@@ -224,12 +231,14 @@ class Pipeline:
             confirmed = self.tracker.confirmed_tracks()
             feats = self.analyzer.step(
                 i, confirmed, self.tracker.entered, self.tracker.exited)
-            caption = self.captioner.update(i, feats, self.registry,
-                                            frame=sensor, tracks=confirmed)
 
             pre = (mover.cy, mover.cx)
             mstep = mover.step(confirmed, feats)
             travel += math.hypot(mover.cy - pre[0], mover.cx - pre[1])
+            # Narrate the star the stage just locked onto (crosshair == protagonist).
+            caption = self.captioner.update(i, feats, self.registry,
+                                            frame=sensor, tracks=confirmed,
+                                            star_id=mstep.star_id)
             by_id = {t.id: t for t in confirmed}
             if mstep.star_id in by_id:
                 s = by_id[mstep.star_id]
@@ -257,12 +266,16 @@ class Pipeline:
                     (y0, x0), (WH, WW), (sh, sw), cfg.render, i))
         elapsed = time.perf_counter() - t0
 
+        star_at = {r.frame_idx: r.star_id for r in records}
         metrics = compute_metrics(
             n_frames=len(records), elapsed_s=elapsed,
             detections_per_frame=detections_per_frame, track_lengths=track_lengths,
             frame_tracks=frame_tracks, gts=gts,
             caption_headlines=[e.headline for e in self.captioner_transcript()],
-            caption_kinds=[e.kind for e in self.captioner_transcript()])
+            caption_kinds=[e.kind for e in self.captioner_transcript()],
+            caption_stars=[((e.subjects[0] if e.subjects else None),
+                            star_at.get(e.frame_idx))
+                           for e in self.captioner_transcript()])
         moving = {
             "mean_star_offset": (sum(offsets) / len(offsets)) if offsets else None,
             "stage_travel": travel,

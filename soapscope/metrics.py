@@ -31,6 +31,7 @@ class Metrics:
     score: float
     mota: Optional[float] = None    # Multi-Object Tracking Accuracy (GT-only; higher better)
     id_switches: Optional[int] = None  # identity switches over the clip (lower better)
+    caption_coherence: Optional[float] = None  # fraction of captions about the followed star (higher better)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -40,12 +41,13 @@ class Metrics:
         frag = "n/a" if self.fragmentation is None else f"{self.fragmentation:.2f}"
         mota = "n/a" if self.mota is None else f"{self.mota:.2f}"
         idsw = "n/a" if self.id_switches is None else str(self.id_switches)
+        coh = "n/a" if self.caption_coherence is None else f"{self.caption_coherence:.2f}"
         return (
             f"score={self.score:.3f} | fps={self.fps:.1f} | "
             f"recall={rec} | frag={frag} | mota={mota} idsw={idsw} | "
             f"tracks={self.n_tracks_total} meanlen={self.mean_track_len:.1f} | "
             f"captions={self.caption_count} variety={self.caption_variety:.2f} "
-            f"kinds={self.kind_variety}"
+            f"kinds={self.kind_variety} coherence={coh}"
         )
 
 
@@ -98,6 +100,7 @@ def compute_metrics(
     caption_headlines: List[str],
     caption_kinds: List[str],
     match_radius: float = 22.0,
+    caption_stars: Optional[List[Tuple[Optional[int], Optional[int]]]] = None,
 ) -> Metrics:
     fps = n_frames / elapsed_s if elapsed_s > 0 else 0.0
     mean_det = sum(detections_per_frame) / max(1, len(detections_per_frame))
@@ -109,6 +112,15 @@ def compute_metrics(
     n_caps = len(caption_headlines)
     variety = (len(set(caption_headlines)) / n_caps) if n_caps else 0.0
     kind_variety = len(set(caption_kinds))
+
+    # Coherence: of the captions with both a protagonist and a followed star,
+    # what fraction narrate the microbe the camera is actually on. Diagnostic
+    # only (like MOTA) — the objective doesn't price it, but a soap opera should.
+    caption_coherence: Optional[float] = None
+    if caption_stars:
+        pairs = [(p, s) for (p, s) in caption_stars if p is not None and s is not None]
+        if pairs:
+            caption_coherence = sum(p == s for p, s in pairs) / len(pairs)
 
     # Ground-truth-based scores (synthetic world only).
     gt_recall: Optional[float] = None
@@ -146,7 +158,7 @@ def compute_metrics(
         n_tracks_total=n_tracks, mean_track_len=mean_len, max_track_len=max_len,
         caption_count=n_caps, caption_variety=variety, kind_variety=kind_variety,
         gt_recall=gt_recall, fragmentation=fragmentation, score=score,
-        mota=mota, id_switches=id_switches,
+        mota=mota, id_switches=id_switches, caption_coherence=caption_coherence,
     )
 
 

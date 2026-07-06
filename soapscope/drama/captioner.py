@@ -64,6 +64,10 @@ TEMPLATES: Dict[str, List[str]] = {
         "The chase is ON: {A}, {arch_a}, will NOT let {b_short} get away.",
         "{A} closes in on {B}. Somewhere a diatom gasps.",
         "{A} tails {B} with the intensity of unpaid rent.",
+        "{A} chases {B} with the focus of a microbe who skipped brunch.",
+        "Pursuit o'clock: {A} will follow {B} to the very edge of the coverslip.",
+        "{A} locks onto {B}. Neither of them has thought this through.",
+        "Round and round: {A} hounds {B} while the flagella do the emotional labour.",
     ],
     "FLEE": [
         "{A} FLEES from {B}! The betrayal! The velocity!",
@@ -76,6 +80,10 @@ TEMPLATES: Dict[str, List[str]] = {
         "Face to face at last: {A} meets {B}, and neither will apologise.",
         "{A} bumps into {B}. The membranes touch. The tabloids rejoice.",
         "It's the confrontation we were promised: {A} vs {B}, no notes.",
+        "{A} and {B} meet in the middle, and the middle isn't big enough for both.",
+        "Contact! {A} and {B} exchange pleasantries and possibly some cytoplasm.",
+        "{A} finally corners {B}. Words are had. Membranes are jostled.",
+        "The summit nobody wanted: {A} and {B}, nose to nose, scores to settle.",
     ],
     "SPEED_BURST": [
         "{A} storms off in a huff at {speed:.1f} px/frame. ICONIC.",
@@ -88,18 +96,26 @@ TEMPLATES: Dict[str, List[str]] = {
         "{A} has not moved in {frames} frames. This is a cry for help.",
         "Still waters: {A} sulks photogenically while the plot waits.",
         "{A} contemplates the meaning of it all. And lunch.",
+        "{A} holds perfectly still, milking the close-up for all it's worth.",
+        "Motionless again — {A} is either meditating or plotting; the score can't tell.",
+        "{A} parks in frame and refuses to emote. A bold artistic choice.",
+        "{frames} frames of {A} doing nothing. Somewhere, an Emmy panel takes notes.",
     ],
     "WANDER": [
         "{A} drifts, {trait_a} as ever, plotting nothing in particular.",
         "A quiet moment as {A} wanders the pond of broken dreams.",
         "{A} mills about. Even microbes have Mondays.",
         "Nothing happens, beautifully, starring {A}.",
+        "{A} makes lazy circles, radiating the confidence of a microbe with no plan.",
+        "The camera stays on {A}, who is doing absolutely nothing — but boldly.",
+        "{A} drifts past, {trait_a}, pretending not to be the main character.",
+        "We hold on {A}, clearly having Thoughts. Probably about osmosis.",
     ],
 }
 
 # Escalation lines when a rivalry/romance has history.
 RIVALRY_TAGS = [
-    "Their feud enters its {n}th act.",
+    "Their feud escalates to act {n}.",
     "That's {n} confrontations now. Someone start counting.",
     "The rivalry deepens — round {n}.",
 ]
@@ -114,7 +130,8 @@ class Captioner:
     """Interface shared by every captioning backend."""
 
     def update(self, frame_idx: int, feats: FrameFeatures,
-               reg: CharacterRegistry, frame=None, tracks=None) -> CaptionEvent:  # pragma: no cover
+               reg: CharacterRegistry, frame=None, tracks=None,
+               star_id=None) -> CaptionEvent:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -127,6 +144,7 @@ class TemplateCaptioner(Captioner):
         self.rivalry: Dict[Tuple[int, int], int] = {}
         self.romance: Dict[Tuple[int, int], int] = {}
         self._title_shown = False
+        self._recent_headlines: List[str] = []   # avoid echoing a line we just used
 
     # -------------------------------------------------------------- helpers
     def _fields(self, beat: Beat, reg: CharacterRegistry) -> dict:
@@ -165,11 +183,21 @@ class TemplateCaptioner(Captioner):
 
     def _render_beat(self, beat: Beat, reg: CharacterRegistry) -> List[str]:
         fields = self._fields(beat, reg)
-        template = self.rng.choice(TEMPLATES.get(beat.kind, TEMPLATES["WANDER"]))
-        try:
-            headline = template.format(**fields)
-        except (KeyError, IndexError):
-            headline = template  # be robust to any missing field
+        choices = TEMPLATES.get(beat.kind, TEMPLATES["WANDER"])
+        # Following one star makes its beats recur; re-roll a few times so we
+        # don't echo a line we just used (recovers variety without losing focus).
+        headline = ""
+        for _ in range(6):
+            template = self.rng.choice(choices)
+            try:
+                headline = template.format(**fields)
+            except (KeyError, IndexError):
+                headline = template  # be robust to any missing field
+            if headline not in self._recent_headlines:
+                break
+        self._recent_headlines.append(headline)
+        if len(self._recent_headlines) > 4:
+            self._recent_headlines.pop(0)
         lines = [headline]
         tag = self._relationship_tag(beat)
         if tag:
@@ -183,12 +211,13 @@ class TemplateCaptioner(Captioner):
 
     # ---------------------------------------------------------------- update
     def update(self, frame_idx: int, feats: FrameFeatures,
-               reg: CharacterRegistry, frame=None, tracks=None) -> CaptionEvent:
+               reg: CharacterRegistry, frame=None, tracks=None,
+               star_id=None) -> CaptionEvent:
         if not self._is_tick(frame_idx):
             # Hold the current caption between ticks; keep its frame stamp fresh.
             return self.current  # type: ignore[return-value]
 
-        beat = feats.top()
+        beat = feats.top(star_id if self.cfg.star_lock else None)
         if beat is None:
             headline = "The pond is calm. Suspiciously calm."
             ev = CaptionEvent(frame_idx=frame_idx, headline=headline,
@@ -313,11 +342,12 @@ class LLMCaptioner(Captioner):
 
     # --------------------------------------------------------------- update
     def update(self, frame_idx: int, feats: FrameFeatures,
-               reg: CharacterRegistry, frame=None, tracks=None) -> CaptionEvent:
+               reg: CharacterRegistry, frame=None, tracks=None,
+               star_id=None) -> CaptionEvent:
         if not self._is_tick(frame_idx):
             return self.current  # type: ignore[return-value]
 
-        beat = feats.top()
+        beat = feats.top(star_id if self.cfg.star_lock else None)
         if beat is not None and len(beat.subjects) >= 2:
             key = self._fallback._pair(beat.subjects[0], beat.subjects[1])
             self._history[key] = self._history.get(key, 0) + 1
@@ -408,10 +438,10 @@ class VLMCaptioner(Captioner):
                 self._vlm = None
         return self._vlm
 
-    def update(self, frame_idx, feats, reg, frame=None, tracks=None):
+    def update(self, frame_idx, feats, reg, frame=None, tracks=None, star_id=None):
         if not self._is_tick(frame_idx):
             return self.current  # type: ignore[return-value]
-        beat = feats.top()
+        beat = feats.top(star_id if self.cfg.star_lock else None)
         line = None
         vlm = self._ensure_vlm()
         crop = self._crop_star(beat, frame, tracks) if vlm is not None else None
