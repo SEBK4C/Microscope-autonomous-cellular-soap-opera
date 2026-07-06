@@ -16,28 +16,27 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **De-fragment real footage.** Real clips segment into many short tracks (the
-   ciliate clip: 77 tracks / 60 frames, mean len 10) because compression
-   noise/texture trips the adaptive threshold and the greedy tracker drops IDs.
-   Try: temporal denoise (rolling-median background), morphological opening,
-   `min_area` that scales with frame size, and a larger gate / Kalman predict.
-   *Metric:* mean_track_len ↑ and track count ↓ on the real clip; keep the
-   synthetic score ≥ 0.90.
-2. **SAM2/SAM3 segmentation backend.** Implement `SamSegmenter.segment` behind
+1. **SAM2/SAM3 segmentation backend.** Implement `SamSegmenter.segment` behind
    the `[sam]` extra: automatic-mask-generation on the first frame, then video
    propagation for tracking. Fall back to classical if `torch`/checkpoint
-   absent. *Metric:* recall & fragmentation vs classical; fps budget.
-3. **Local-LLM narrator.** Implement `LLMCaptioner` with llama.cpp/Ollama, a
+   absent. NOTE: likely slow on CPU — measure and document the perf caveat.
+   *Metric:* recall & fragmentation vs classical on the real clip; fps budget.
+2. **Local-LLM narrator.** Implement `LLMCaptioner` with llama.cpp/Ollama, a
    soap-opera system prompt fed the frame's beats + character memory (optionally
    cropped microbe thumbnails via a small VLM). Keep template as fallback.
    *Metric:* caption_variety + a human spot-check; must stay near-real-time.
+3. **Temporal+spatial hybrid segmentation.** Motion mode splits large/slow
+   objects into leading/trailing crescents and drops stationary ones. Blend the
+   motion mask with the spatial (polarity) score, or morphologically close it,
+   so bodies stay whole. *Metric:* frag on synthetic-temporal → ~1.0; real-clip
+   meanlen holds.
 4. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
-   assignment; add a proper MOTA / ID-switch metric using GT. (Pairs with #1.)
+   assignment; add a proper MOTA / ID-switch metric using GT. (Pairs with #3.)
 5. **Touching-microbe segmentation.** Distance-transform + watershed split so
    two collided microbes don't merge into one track. *Metric:* fragmentation.
 6. **True moving-crop stage.** Make the world larger than the sensor so the CNC
    actually pans across a slide and microbes leave/enter the sensor; add
-   stage-motion-compensated tracking. *Metric:* star stays in-frame % ; recall.
+   stage-motion-compensated tracking (temporal mode then needs bg compensation).
 7. **Season memory.** Persist character bios + relationships to disk across
    episodes; "Previously, on…" recaps and end-of-episode cliffhangers.
 8. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
@@ -161,3 +160,54 @@ during fast ciliate motion. That's the new **backlog #1** (de-fragment real
 footage: temporal denoise + morphology + size-scaled `min_area` + a
 larger/Kalman tracker). Note: auto+adaptive also *beat* the dark-field default
 on synthetic (0.96 vs 0.93) → possible new default (backlog #9).
+
+---
+
+## 2026-07-06 — Iteration 2: de-fragment real footage (temporal + morphology)
+
+**Picked:** backlog #1. Real clips fragmented into 77 short tracks / 60 frames
+(mean len 10) — compression noise/texture created spurious blobs and the greedy
+tracker dropped IDs during fast ciliate motion.
+
+**Built (all default-off, so the synthetic path is byte-for-byte unchanged):**
+
+- **Temporal background subtraction** (`SegmentConfig.temporal`, `bg_alpha`) —
+  motion foreground `|frame − running_bg|`. Polarity-agnostic; erases static
+  texture and per-frame compression noise. The single biggest lever.
+- **Morphological opening** (`open_iter`) and a **3×3 median** (`median`) —
+  pure-numpy despeckle primitives.
+- **Vectorised `segment()`** — per-component stats via `bincount`/`minimum.at`
+  instead of an O(n·HW) per-label loop. Behaviour-identical; noticeably faster
+  on noisy frames with many blobs.
+- **`run` de-fragmentation defaults** — for real footage `run` now uses
+  `temporal + open1 + min_area=45` and coasts the tracker longer
+  (`max_missed=12, max_dist=65, min_hits=3`); all overridable
+  (`--temporal/--no-temporal`, `--open`, `--min-area`).
+- 5 new tests (opening, median, temporal-needs-motion, temporal-static-quiet,
+  vectorised counts). **24/24 green.**
+
+**Measured (real ciliate clip, 60 frames @ 480px) — big win:**
+
+| config | tracks | mean len | det/frame |
+|--------|--------|----------|-----------|
+| iter-1 baseline (auto+adaptive) | 77 | 10.2 | 15.0 |
+| median3 | 126 | 8.7 | 20.7 |
+| min_area=80 only | 25 | 7.2 | 3.6 |
+| **temporal + open1 + min45 + coast** | **13** | **18.8** | 3.7 |
+
+**6× fewer tracks, +84% mean track length.** Visibly steadier (cast 4 vs 11 in
+frame) when rendered.
+
+**What worked:** temporal motion-foreground — noise is temporally random and
+averages into the background, while drifting microbes pop out. Coasting the
+tracker longer bridged fast-motion gaps.
+
+**What didn't / caveats:** (1) **median filtering made it worse** (126 tracks) —
+it merged noise into min-area-passing blobs; dropped it. (2) Temporal mode
+**fragments the large synthetic microbes** (frag 2.60): a big moving blob leaves
+separate leading/trailing crescents, and stationary objects fade. So temporal is
+a **`run`-only default, never the synthetic/demo default**. Fixing that (blend
+motion+spatial, or morphological close) is new backlog #3.
+
+**Next:** backlog #1 — the SAM2/SAM3 segmentation backend (the brief's marquee
+ask), with graceful fallback and an honest CPU-perf measurement.

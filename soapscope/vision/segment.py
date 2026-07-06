@@ -58,6 +58,33 @@ def _box_blur(a: np.ndarray, r: int) -> np.ndarray:
     return (total / np.maximum(count, 1)).astype(np.float32)
 
 
+def _median3(a: np.ndarray) -> np.ndarray:
+    """3x3 median filter (kills salt-and-pepper / compression speckle)."""
+    p = np.pad(a, 1, mode="edge")
+    H, W = a.shape
+    stack = np.stack([p[i:i + H, j:j + W] for i in range(3) for j in range(3)], axis=0)
+    return np.median(stack, axis=0).astype(np.float32)
+
+
+def _binary_dilate(mask: np.ndarray, iters: int = 1) -> np.ndarray:
+    m = mask
+    for _ in range(iters):
+        m = _box_blur(m.astype(np.float32), 1) > 1e-6      # any neighbour set
+    return m
+
+
+def _binary_erode(mask: np.ndarray, iters: int = 1) -> np.ndarray:
+    m = mask
+    for _ in range(iters):
+        m = _box_blur(m.astype(np.float32), 1) >= 1.0 - 1e-6  # all neighbours set
+    return m
+
+
+def _binary_open(mask: np.ndarray, iters: int = 1) -> np.ndarray:
+    """Opening = erode then dilate: removes specks/thin bridges, keeps blobs."""
+    return _binary_dilate(_binary_erode(mask, iters), iters)
+
+
 def label_components(mask: np.ndarray) -> "tuple[np.ndarray, int]":
     """8-connected connected components, pure numpy/python.
 
@@ -131,6 +158,7 @@ class ClassicalSegmenter(Segmenter):
         self.cfg = cfg
         self.last_polarity: Optional[str] = None   # what "auto" resolved to
         self._auto_polarity: Optional[str] = None   # cached auto decision (per video)
+        self._bg: Optional[np.ndarray] = None       # running background (temporal mode)
 
     def _detect_polarity(self, gray: np.ndarray) -> str:
         """Do the objects darken or brighten the frame vs their local background?
@@ -149,8 +177,23 @@ class ClassicalSegmenter(Segmenter):
     def _score(self, frame: np.ndarray) -> np.ndarray:
         cfg = self.cfg
         gray = _to_gray(frame)
+        if cfg.median >= 3:
+            gray = _median3(gray)
         if cfg.blur:
             gray = _box_blur(gray, cfg.blur)
+
+        if cfg.temporal:
+            # Motion foreground: deviation from a slowly-updated background.
+            # Polarity-agnostic and it erases static texture / compression noise
+            # — ideal for a mostly-still microscope field with drifting microbes.
+            if self._bg is None:
+                self._bg = gray.copy()
+            diff = np.abs(gray - self._bg)
+            self._bg = (1.0 - cfg.bg_alpha) * self._bg + cfg.bg_alpha * gray
+            self.last_polarity = "temporal"
+            hi = np.percentile(diff, 99.5)
+            return np.clip(diff / max(hi, 1e-3), 0.0, 1.0)
+
         pol = cfg.polarity
         if pol == "auto":
             # Decide once on the first frame and keep it — a clip's polarity is
@@ -185,20 +228,41 @@ class ClassicalSegmenter(Segmenter):
         cfg = self.cfg
         score = self._score(frame)
         mask = score >= cfg.threshold
+        if cfg.open_iter > 0:
+            mask = _binary_open(mask, cfg.open_iter)
         labels, n = label_components(mask)
+        if n == 0:
+            return SegResult(labels=labels, detections=[])
+
+        # Vectorised per-component stats (fast even with many noise blobs).
+        ys, xs = np.nonzero(labels)
+        lab = labels[ys, xs]
+        area = np.bincount(lab, minlength=n + 1).astype(np.int64)
+        sum_y = np.bincount(lab, weights=ys, minlength=n + 1)
+        sum_x = np.bincount(lab, weights=xs, minlength=n + 1)
+        min_y = np.full(n + 1, labels.shape[0], np.int64)
+        max_y = np.zeros(n + 1, np.int64)
+        min_x = np.full(n + 1, labels.shape[1], np.int64)
+        max_x = np.zeros(n + 1, np.int64)
+        np.minimum.at(min_y, lab, ys)
+        np.maximum.at(max_y, lab, ys)
+        np.minimum.at(min_x, lab, xs)
+        np.maximum.at(max_x, lab, xs)
+
+        remap = np.zeros(n + 1, np.int32)
         dets: List[Detection] = []
-        out = np.zeros_like(labels)
         keep = 0
         for lbl in range(1, n + 1):
-            ys, xs = np.nonzero(labels == lbl)
-            area = int(ys.size)
-            if area < cfg.min_area or area > cfg.max_area:
+            a = int(area[lbl])
+            if a < cfg.min_area or a > cfg.max_area:
                 continue
             keep += 1
-            cy, cx = float(ys.mean()), float(xs.mean())
-            bbox = (int(ys.min()), int(xs.min()), int(ys.max()) + 1, int(xs.max()) + 1)
-            out[ys, xs] = keep
-            dets.append(Detection(label=keep, centroid=(cy, cx), bbox=bbox, area=area))
+            remap[lbl] = keep
+            cy, cx = float(sum_y[lbl] / a), float(sum_x[lbl] / a)
+            bbox = (int(min_y[lbl]), int(min_x[lbl]),
+                    int(max_y[lbl]) + 1, int(max_x[lbl]) + 1)
+            dets.append(Detection(label=keep, centroid=(cy, cx), bbox=bbox, area=a))
+        out = remap[labels]
         return SegResult(labels=out, detections=dets)
 
 

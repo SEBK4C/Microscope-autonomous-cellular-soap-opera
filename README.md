@@ -96,6 +96,12 @@ background vs dark microbes on a light one) and uses adaptive local thresholding
 so vignetting and phase halos don't fool it — no per-clip tuning needed to get a
 watchable first cut.
 
+For noisy real footage, `run` also defaults to **temporal motion-foreground**
+segmentation plus morphological cleanup, which erases static texture and
+compression speckle — on our test clip that cut fragmentation ~6× (77 → 13
+tracks, and mean track length +84%). Add `--no-temporal` for a moving/panning
+stage where the background isn't static.
+
 ## The CNC stage as an API
 
 The pipeline only ever talks to the abstract `CNCStage` interface. A real
