@@ -32,7 +32,7 @@ video → segment → track → features → drama → stage → render
 | **Video** | synthetic world + ground truth; PNG-frame folders | real microscopy clips, webcam |
 | **Segment** | classical numpy CC (polarity / adaptive / temporal) | **FastSAM / MobileSAM / SAM** (drop-in; see below) |
 | **Track** | Kalman + Hungarian, stable IDs (MOTA-measured) | SAM3 video propagation |
-| **Drama** | offline template narrator with feud/romance memory | **local LLM narrator** (drop-in; see below) → VLM |
+| **Drama** | template / **local LLM** / **BLIP-grounded VLM** narrators | bigger VLM, two-stage |
 | **Stage** | `SimulatedStage` + JSON protocol; **moving-crop pan** across a larger slide | real **CNC over serial** |
 | **Render** | annotated GIF + transcript | mp4, live web viewer |
 
@@ -143,6 +143,18 @@ dinner?!"* It downloads from HuggingFace and runs on CPU at **~2.4 s/caption**
 (captions fire every few frames, so a short clip is seconds of narration). Any
 failure falls back to the template narrator, so the pipeline never breaks. The
 template stays the default for hard-real-time; the LLM is the quality option.
+
+### Grounded (VLM) captions
+
+`--narrator vlm` grounds the caption in what the microbe actually *looks* like.
+A small local **BLIP** captioner reads the star's thumbnail and returns an
+appearance phrase, which is styled into a soap-opera line:
+
+> Count Dmitri Pseudopod — glowing green — gives chase across the slide.
+
+BLIP is fast (~0.6 s/describe on CPU) and grounded, unlike a tiny instruct-VLM
+which is ~60× slower and hallucinates on abstract blobs (measured — see the
+journal). `pip install -e .[vlm]`, then `demo --narrator vlm`.
 
 ## The CNC stage as an API
 

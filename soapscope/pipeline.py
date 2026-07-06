@@ -84,7 +84,8 @@ class Pipeline:
             confirmed = self.tracker.confirmed_tracks()
             feats = self.analyzer.step(
                 i, confirmed, self.tracker.entered, self.tracker.exited)
-            caption = self.captioner.update(i, feats, self.registry)
+            caption = self.captioner.update(i, feats, self.registry,
+                                            frame=frame, tracks=confirmed)
             step = self.controller.step(confirmed, feats)
 
             for t in confirmed:
@@ -167,7 +168,8 @@ class Pipeline:
             confirmed = self.tracker.confirmed_tracks()
             feats = self.analyzer.step(
                 i, confirmed, self.tracker.entered, self.tracker.exited)
-            caption = self.captioner.update(i, feats, self.registry)
+            caption = self.captioner.update(i, feats, self.registry,
+                                            frame=sensor, tracks=confirmed)
 
             pre = (mover.cy, mover.cx)
             mstep = mover.step(confirmed, feats)

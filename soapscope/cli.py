@@ -184,9 +184,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--frames", type=int, default=140)
     d.add_argument("--seed", type=int, default=7)
     d.add_argument("--spice", type=float, default=1.0)
-    d.add_argument("--narrator", choices=["template", "llm"], default="template",
-                   help="template = instant & offline; llm = small local model "
-                        "(needs .[llm]; ~2.4 s/caption on CPU)")
+    d.add_argument("--narrator", choices=["template", "llm", "vlm"], default="template",
+                   help="template = instant & offline; llm = small local text model "
+                        "(~2.4 s/caption); vlm = BLIP-grounded, mentions appearance "
+                        "(~3 s/caption). llm/vlm need .[llm]/.[vlm]")
     d.add_argument("--llm-model", default="Qwen/Qwen2.5-0.5B-Instruct")
     d.add_argument("--style", choices=["darkfield", "brightfield"], default="darkfield",
                    help="darkfield = bright microbes/dark bg; brightfield = dark microbes/light bg")

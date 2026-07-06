@@ -73,6 +73,9 @@ class DramaConfig:
     llm_model: str = "Qwen/Qwen2.5-0.5B-Instruct"  # small HF instruct model (CPU-runnable)
     llm_max_tokens: int = 48     # cap generation length (latency ∝ tokens)
     llm_temperature: float = 0.9 # creativity of the narration
+    # --- vision-language narrator (backend="vlm"): grounds captions in pixels ---
+    vlm_model: str = "Salesforce/blip-image-captioning-base"  # fast, grounded CPU captioner
+    vlm_max_tokens: int = 40
 
 
 @dataclass

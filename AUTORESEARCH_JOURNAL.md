@@ -16,25 +16,21 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **VLM captioner.** Feed cropped microbe thumbnails to a small local
-   vision-language model (SmolVLM / moondream via transformers) so captions are
-   grounded in what the microbe actually looks like, not just the beat label.
-   Keep template + LLM as fallbacks. *Metric:* human spot-check; latency.
-2. **Touching-microbe segmentation.** Distance-transform + watershed split so
+1. **Touching-microbe segmentation.** Distance-transform + watershed split so
    two collided microbes don't merge into one track. *Metric:* fragmentation.
-3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+2. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-4. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
+3. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
    that streams annotated frames + captions (near-real-time from webcam).
-5. **Season memory.** Persist character bios + relationships to disk across
+4. **Season memory.** Persist character bios + relationships to disk across
    episodes; "Previously, on…" recaps and end-of-episode cliffhangers.
-6. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+5. **Adaptive by default?** auto+adaptive beat the dark-field default on the
    synthetic bench (0.96 vs 0.93); consider making adaptive the default once
    validated on more real clips. *Metric:* synthetic score; real-clip frag.
-7. **TTS narrator** (optional): speak the caption bar with an announcer voice.
-8. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
+6. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+7. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
    temporal-mode background compensation so the moving crop can use motion
    segmentation; real-video digital-pan follow.
 
@@ -449,3 +445,54 @@ Hungarian tracker (iter 6) handles the lifted world-coord detections cleanly.
 
 **Next:** backlog #1 — the VLM captioner (ground captions in the microbe's actual
 appearance via a small local vision-language model).
+
+---
+
+## 2026-07-06 — Iteration 8: VLM captioner (grounds captions in appearance)
+
+**Picked:** backlog #1. Make captions reflect what the microbe actually *looks*
+like, not just its motion beat.
+
+**Built:**
+
+- **Plumbed pixels to the captioner** — `Captioner.update(..., frame=, tracks=)`;
+  both pipeline paths now pass the frame + confirmed tracks. Template/LLM ignore
+  them; the VLM uses them. (Interface-compatible; default path unchanged.)
+- **`VLMCaptioner`** — crops the star's thumbnail, asks the VLM for a grounded
+  appearance phrase, and **styles it into a soap-opera line** ("{name} — {look}
+  — {action}"). Falls back to the template captioner on any failure.
+- **`drama/vlm_backend.py`** — lazy loader, **BLIP by default**
+  (`Salesforce/blip-image-captioning-base`) with a conditional-prefix
+  `describe()`; an instruct-VLM path kept for SmolVLM-style models. `[vlm]` extra.
+- **`demo --narrator vlm`**; 5 new tests (fallback, mock-grounding, style, crop).
+  **52 green.**
+
+**The pivot that made it work — measured, honest:**
+
+| model | latency/caption | output on a microbe blob |
+|-------|-----------------|--------------------------|
+| SmolVLM-256M-Instruct | **~36 s** | hallucinated garbage ("…created by Marvel Comics…"), ignores the image |
+| **BLIP-base (chosen)** | **~0.6 s** | grounded: "glowing green", "a group of jelly beans floating in the air" |
+
+A tiny *instruct*-VLM was ~60× slower **and** worse — it hallucinates on abstract
+blobs and ignores the max-length instruction. A purpose-built *captioner* (BLIP)
+is fast and actually describes the pixels. So I use BLIP to extract a grounded
+phrase and do the soap-opera styling myself (name + appearance + beat action).
+
+**Result (synthetic, 42 frames, ~3 s/caption incl. load):**
+
+> Count Dmitri Pseudopod — glowing green — gives chase across the slide.
+> Madame Dmitri Euglenova — glowing green and pink — faces its rival at last.
+> Count Vesper Micrococcus — green — drifts on, full of secrets.
+
+Captions now mention each microbe's **actual colour** (from BLIP) inside the
+soap-opera structure — grounding the template/LLM never had. `docs/vlm_demo.png`.
+
+**What worked:** the two-part design (VLM grounds → we style) sidesteps the tiny
+model's weak instruction-following while keeping it fast and on-theme. **What
+didn't:** instruct-VLMs at this size are unusable on CPU (slow + hallucinatory) —
+logged, so nobody re-tries SmolVLM expecting magic. On abstract synthetic blobs
+BLIP mostly reports colour; on real microscopy it should say more.
+
+**Next:** backlog #1 — touching-microbe segmentation (watershed split so two
+collided microbes don't merge into one track).

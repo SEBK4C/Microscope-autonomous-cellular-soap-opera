@@ -114,7 +114,7 @@ class Captioner:
     """Interface shared by every captioning backend."""
 
     def update(self, frame_idx: int, feats: FrameFeatures,
-               reg: CharacterRegistry) -> CaptionEvent:  # pragma: no cover
+               reg: CharacterRegistry, frame=None, tracks=None) -> CaptionEvent:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -183,7 +183,7 @@ class TemplateCaptioner(Captioner):
 
     # ---------------------------------------------------------------- update
     def update(self, frame_idx: int, feats: FrameFeatures,
-               reg: CharacterRegistry) -> CaptionEvent:
+               reg: CharacterRegistry, frame=None, tracks=None) -> CaptionEvent:
         if not self._is_tick(frame_idx):
             # Hold the current caption between ticks; keep its frame stamp fresh.
             return self.current  # type: ignore[return-value]
@@ -223,6 +223,19 @@ SITUATIONS = {
     "SPEED_BURST": "{A} suddenly races off in a hurry",
     "LINGER": "{A} sits perfectly still, brooding",
     "WANDER": "{A} ({arch_a}) drifts aimlessly",
+}
+
+# Beat -> a soap-opera action phrase (VLM captions: "{name} — {appearance} — {action}").
+VLM_ACTIONS = {
+    "ENTER": "makes an entrance nobody asked for",
+    "EXIT": "drifts out of the story",
+    "DIVIDE": "splits scandalously in two",
+    "CHASE": "gives chase across the slide",
+    "FLEE": "flees the scene at speed",
+    "ENCOUNTER": "faces its rival at last",
+    "SPEED_BURST": "storms off in a huff",
+    "LINGER": "broods in the corner",
+    "WANDER": "drifts on, full of secrets",
 }
 
 
@@ -300,7 +313,7 @@ class LLMCaptioner(Captioner):
 
     # --------------------------------------------------------------- update
     def update(self, frame_idx: int, feats: FrameFeatures,
-               reg: CharacterRegistry) -> CaptionEvent:
+               reg: CharacterRegistry, frame=None, tracks=None) -> CaptionEvent:
         if not self._is_tick(frame_idx):
             return self.current  # type: ignore[return-value]
 
@@ -339,9 +352,101 @@ class LLMCaptioner(Captioner):
         return ev
 
 
+class VLMCaptioner(Captioner):
+    """Narrate from the microbe's *appearance* via a small local vision-language
+    model. Crops the star's thumbnail, asks the VLM for a soap-opera line about
+    it, and falls back to the template captioner on any failure."""
+
+    def __init__(self, cfg: DramaConfig):
+        self.cfg = cfg
+        self._fallback = TemplateCaptioner(cfg)
+        self.transcript: List[CaptionEvent] = []
+        self.current: Optional[CaptionEvent] = None
+        self._vlm = None
+        self._vlm_tried = False
+        self._title_shown = False
+        self._recent: List[str] = []
+        self.used_vlm = 0
+        self.used_fallback = 0
+
+    def _is_tick(self, frame_idx: int) -> bool:
+        return self.current is None or frame_idx % max(1, self.cfg.caption_every) == 0
+
+    def _style(self, desc: str, beat: Beat, reg: CharacterRegistry) -> str:
+        """Weave the grounded appearance phrase into a soap-opera line."""
+        desc = desc.strip().strip(".").strip()
+        if not desc or beat is None:
+            return self._fallback._render_beat(beat, reg)[0] if beat else desc
+        name = self._fallback._fields(beat, reg).get("A", "Our hero")
+        action = VLM_ACTIONS.get(beat.kind, "drifts on, full of secrets")
+        return f"{name} — {desc} — {action}."
+
+    def _crop_star(self, beat: Optional[Beat], frame, tracks):
+        if frame is None or beat is None or not beat.subjects:
+            return None
+        from PIL import Image
+        H, W = frame.shape[:2]
+        t = None
+        if tracks is not None:
+            t = next((tt for tt in tracks if tt.id == beat.subjects[0]), None)
+        if t is not None:
+            y0, x0, y1, x1 = t.bbox
+            pad = 14
+            y0, x0 = max(0, int(y0) - pad), max(0, int(x0) - pad)
+            y1, x1 = min(H, int(y1) + pad), min(W, int(x1) + pad)
+            if y1 - y0 >= 8 and x1 - x0 >= 8:
+                return Image.fromarray(frame[y0:y1, x0:x1]).convert("RGB")
+        return Image.fromarray(frame).convert("RGB")   # fall back to the whole view
+
+    def _ensure_vlm(self):
+        if not self._vlm_tried:
+            self._vlm_tried = True
+            try:
+                from .vlm_backend import load_vlm
+                self._vlm = load_vlm(self.cfg)
+            except Exception:
+                self._vlm = None
+        return self._vlm
+
+    def update(self, frame_idx, feats, reg, frame=None, tracks=None):
+        if not self._is_tick(frame_idx):
+            return self.current  # type: ignore[return-value]
+        beat = feats.top()
+        line = None
+        vlm = self._ensure_vlm()
+        crop = self._crop_star(beat, frame, tracks) if vlm is not None else None
+        if vlm is not None and crop is not None and beat is not None:
+            try:
+                line = self._style(LLMCaptioner._clean(vlm.describe(crop)), beat, reg)
+            except Exception:
+                line = None
+        if line:
+            self.used_vlm += 1
+        else:
+            self.used_fallback += 1
+            line = ("The pond is calm. Suspiciously calm." if beat is None
+                    else self._fallback._render_beat(beat, reg)[0])
+
+        lines = [line]
+        if not self._title_shown:
+            lines = ["🎬 AS THE SLIDE TURNS — today's episode:"] + lines
+            self._title_shown = True
+        ev = CaptionEvent(frame_idx=frame_idx, headline=lines[0], lines=lines,
+                          kind=(beat.kind if beat else "IDLE"),
+                          subjects=(beat.subjects if beat else []))
+        self.current = ev
+        self.transcript.append(ev)
+        self._recent.append(line)
+        if len(self._recent) > 3:
+            self._recent.pop(0)
+        return ev
+
+
 def make_captioner(cfg: DramaConfig) -> Captioner:
     if cfg.backend == "template":
         return TemplateCaptioner(cfg)
     if cfg.backend == "llm":
         return LLMCaptioner(cfg)
+    if cfg.backend == "vlm":
+        return VLMCaptioner(cfg)
     raise ValueError(f"unknown drama backend: {cfg.backend!r}")

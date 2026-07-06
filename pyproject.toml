@@ -22,6 +22,8 @@ dependencies = [
 sam = ["ultralytics"]
 # Local LLM narrator via HF transformers (+ CPU torch, see the [sam] note above).
 llm = ["transformers", "accelerate"]
+# VLM narrator: grounds captions in appearance via BLIP (fast) / SmolVLM.
+vlm = ["transformers", "accelerate"]
 video = ["imageio", "imageio-ffmpeg", "opencv-python"]  # real video I/O
 hardware = ["pyserial"]                # real CNC stage over serial
 dev = ["pytest"]
