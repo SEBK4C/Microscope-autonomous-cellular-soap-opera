@@ -16,29 +16,27 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **True moving-crop stage.** Make the world larger than the sensor so the CNC
-   actually pans across a slide and microbes leave/enter the sensor; the stage
-   controller drives the crop and tracking is stage-motion-compensated. Directly
-   demonstrates the brief's core premise (a stage that *follows* microbes).
-   *Metric:* star-stays-in-frame %; recall under motion.
-2. **VLM captioner.** Feed cropped microbe thumbnails to a small local
+1. **VLM captioner.** Feed cropped microbe thumbnails to a small local
    vision-language model (SmolVLM / moondream via transformers) so captions are
    grounded in what the microbe actually looks like, not just the beat label.
    Keep template + LLM as fallbacks. *Metric:* human spot-check; latency.
-3. **Touching-microbe segmentation.** Distance-transform + watershed split so
+2. **Touching-microbe segmentation.** Distance-transform + watershed split so
    two collided microbes don't merge into one track. *Metric:* fragmentation.
-4. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-5. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
+4. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
    that streams annotated frames + captions (near-real-time from webcam).
-6. **Season memory.** Persist character bios + relationships to disk across
+5. **Season memory.** Persist character bios + relationships to disk across
    episodes; "Previously, on…" recaps and end-of-episode cliffhangers.
-7. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+6. **Adaptive by default?** auto+adaptive beat the dark-field default on the
    synthetic bench (0.96 vs 0.93); consider making adaptive the default once
    validated on more real clips. *Metric:* synthetic score; real-clip frag.
-8. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+7. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+8. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
+   temporal-mode background compensation so the moving crop can use motion
+   segmentation; real-video digital-pan follow.
 
 ---
 
@@ -400,3 +398,54 @@ didn't move idsw — greedy gating already matched; the win is better prediction
 **Next:** backlog #1 — the true moving-crop CNC stage (world larger than the
 sensor; the stage pans and microbes enter/leave frame — the brief's core premise
 made literal).
+
+---
+
+## 2026-07-06 — Iteration 7: true moving-crop CNC stage
+
+**Picked:** backlog #1. Make the brief's core premise literal: the slide is
+bigger than the camera, and the CNC stage *pans across it* to keep the star
+framed while microbes genuinely enter and leave the field of view.
+
+**Built (pure numpy):**
+
+- **World larger than sensor** — `WorldConfig.world_scale` (>1 ⇒ slide bigger
+  than the camera). `SyntheticWorld` now renders/physics in WORLD coords; at
+  scale 1.0 the world equals the sensor, so all existing behaviour is unchanged.
+- **`stage/moving.py` `MovingStageController`** — pans a sensor window across the
+  world to follow the drama-picked star (reuses `StageController.pick_star`),
+  rate-limited (`max_step`) with a deadzone, clamped to keep the window on-slide.
+- **`Pipeline.run_moving`** — crops the sensor, lifts detections to WORLD coords,
+  tracks there (**stage-motion-compensated**, so panning ≠ microbe motion), and
+  drives the pan. Emits a `move_abs` stage command per frame.
+- **`render_moving_frame`** — the sensor view with world→sensor overlays plus a
+  **slide minimap** (all microbes as dots + the yellow sensor rectangle) so you
+  can watch the camera roam the slide. `docs/moving_demo.png`.
+- **`demo --moving [--world-scale]`**; 3 new tests. **47 green.**
+
+**Measured (slide 972×648, sensor 540×360, scale 1.8):**
+
+| stage | mean star-offset | stage travel |
+|-------|------------------|--------------|
+| **following** | **104 px** | **1072 px** (roams the slide) |
+| frozen (max_step 0) | 177 px | 0 px |
+
+Following cuts the star's off-centre distance **41%** (177→104 px) and the stage
+pans ~1000 px across the slide to do it — the follow works and is visible in the
+minimap.
+
+**Honest notes:** (1) recall is naturally <1 in moving mode (~0.4–0.7) because
+the sensor only sees *part* of the larger slide — that's the point, not a
+regression. (2) `star_in_frame%` is ~100% for both follow and frozen (the star
+is picked from *visible* tracks, so it's tautologically in-frame) — I report
+**star-offset** instead, which actually discriminates. (3) The moving crop uses
+spatial (not temporal) segmentation: a panning background breaks the temporal
+model — motion-mode bg compensation is backlog #8. (4) Centering is loose (~75–
+104 px) because the director deliberately roams to the most-dramatic microbe;
+tighter lock-on is also backlog #8.
+
+**What worked:** stage-motion-compensated tracking in world coords — the Kalman/
+Hungarian tracker (iter 6) handles the lifted world-coord detections cleanly.
+
+**Next:** backlog #1 — the VLM captioner (ground captions in the microbe's actual
+appearance via a small local vision-language model).

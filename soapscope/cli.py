@@ -52,13 +52,31 @@ def cmd_demo(args) -> int:
         cfg.world.width = args.width
     if args.height:
         cfg.world.height = args.height
-    print(f"[demo] rendering {cfg.n_frames} frames "
-          f"({cfg.world.width}x{cfg.world.height}) style={args.style} "
-          f"polarity={args.polarity} adaptive={cfg.segment.adaptive} …")
-    res = run_synthetic(cfg, collect_frames=True)
+
+    if args.moving:
+        from .pipeline import Pipeline
+        from .video.synthetic import SyntheticWorld
+        cfg.world.world_scale = args.world_scale
+        cfg.world.n_start = max(cfg.world.n_start, 14)
+        cfg.world.max_microbes = max(cfg.world.max_microbes, 24)
+        sw = int(cfg.world.width * args.world_scale)
+        sh = int(cfg.world.height * args.world_scale)
+        print(f"[demo] moving stage: slide {sw}x{sh}, sensor "
+              f"{cfg.world.width}x{cfg.world.height}, {cfg.n_frames} frames …")
+        world = SyntheticWorld(cfg.world)
+        res = Pipeline(cfg).run_moving(world.frames(cfg.n_frames), collect_frames=True)
+    else:
+        print(f"[demo] rendering {cfg.n_frames} frames "
+              f"({cfg.world.width}x{cfg.world.height}) style={args.style} "
+              f"polarity={args.polarity} adaptive={cfg.segment.adaptive} …")
+        res = run_synthetic(cfg, collect_frames=True)
+
     out_dir = Path(args.out)
     _write_outputs(res, out_dir, cfg.render.fps)
     print("[demo]", res.metrics.summary())
+    if res.moving and res.moving.get("mean_star_offset") is not None:
+        print(f"[demo] moving: star_offset={res.moving['mean_star_offset']:.0f}px "
+              f"stage_travel={res.moving['stage_travel']:.0f}px")
     print(f"[demo] wrote {out_dir}/episode.gif, transcript.txt, "
           f"stage_commands.jsonl, metrics.json")
     return 0
@@ -178,6 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--width", type=int, default=0)
     d.add_argument("--height", type=int, default=0)
     d.add_argument("--no-stage", action="store_true")
+    d.add_argument("--moving", action="store_true",
+                   help="moving-crop CNC stage: pan a sensor across a larger slide")
+    d.add_argument("--world-scale", type=float, default=1.8,
+                   help="slide size / sensor size for --moving")
     d.add_argument("--out", default="out")
     d.set_defaults(func=cmd_demo)
 

@@ -154,3 +154,89 @@ def render_frame(frame: np.ndarray, seg: SegResult, tracks: List[Track],
     if cfg.scale and cfg.scale != 1:
         out = out.resize((W * cfg.scale, H * cfg.scale), Image.NEAREST)
     return np.asarray(out, dtype=np.uint8)
+
+
+def render_moving_frame(sensor, seg, tracks, reg, caption, mstep, crop_origin,
+                        world_hw, sensor_hw, cfg, frame_idx, episode=1):
+    """Render the moving-stage sensor view (tracks are in WORLD coords) + a slide
+    minimap showing where the camera is panning."""
+    oy, ox = crop_origin
+    WH, WW = world_hw
+    sh, sw = sensor_hw
+    star_id = mstep.star_id
+
+    base_arr = _tint_masks(sensor, seg, tracks) if cfg.show_masks else sensor
+    base = Image.fromarray(np.asarray(base_arr, np.uint8)).convert("RGBA")
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(overlay)
+    f_small = _font(13)
+    f_med = _font(15)
+
+    if cfg.show_tracks:
+        for t in tracks:
+            col = color_for(t.id)
+            is_star = (t.id == star_id)
+            if len(t.history) > 1:
+                pts = [(hx - ox, hy - oy) for (hy, hx) in t.history[-24:]]
+                d.line(pts, fill=col + (150,), width=2)
+            y0, x0, y1, x1 = t.bbox
+            sy0, sx0, sy1, sx1 = y0 - oy, x0 - ox, y1 - oy, x1 - ox
+            if sx1 < 0 or sx0 > sw or sy1 < 0 or sy0 > sh:
+                continue                       # off the sensor
+            d.rectangle([sx0, sy0, sx1, sy1], outline=col + (255,),
+                        width=3 if is_star else 1)
+            ch = reg.get(t.id)
+            tag = f"{'★ ' if is_star else ''}{ch.short}"
+            ty = max(0, sy0 - 15)
+            d.rectangle([sx0, ty, sx0 + d.textlength(tag, font=f_small) + 6, ty + 14],
+                        fill=(0, 0, 0, 160))
+            d.text((sx0 + 3, ty + 1), tag, font=f_small, fill=col + (255,))
+            if is_star:
+                ry, rx, r = t.cy - oy, t.cx - ox, 12
+                d.line([rx - r, ry, rx + r, ry], fill=(255, 255, 255, 220), width=1)
+                d.line([rx, ry - r, rx, ry + r], fill=(255, 255, 255, 220), width=1)
+                d.ellipse([rx - r, ry - r, rx + r, ry + r],
+                          outline=(255, 255, 255, 220), width=1)
+
+    # Slide minimap (top-right): the whole world, all microbes, the sensor rect.
+    if cfg.show_stage and WW > sw:
+        mw = min(150, sw // 3)
+        mh = max(1, int(round(mw * WH / WW)))
+        mx0, my0 = sw - mw - 6, 26
+        sxk, syk = mw / WW, mh / WH
+        d.rectangle([mx0, my0, mx0 + mw, my0 + mh], fill=(0, 0, 0, 150),
+                    outline=(255, 255, 255, 140), width=1)
+        for t in tracks:
+            mx, my = mx0 + t.cx * sxk, my0 + t.cy * syk
+            col = color_for(t.id)
+            rr = 3 if t.id == star_id else 2
+            d.ellipse([mx - rr, my - rr, mx + rr, my + rr], fill=col + (255,))
+        d.rectangle([mx0 + ox * sxk, my0 + oy * syk,
+                     mx0 + (ox + sw) * sxk, my0 + (oy + sh) * syk],
+                    outline=(255, 214, 102, 230), width=1)
+        d.text((mx0 + 2, my0 - 13), "SLIDE", font=f_small, fill=(255, 214, 102, 220))
+
+    # Top banner.
+    d.rectangle([0, 0, sw, 22], fill=(0, 0, 0, 120))
+    d.text((6, 3), "AS THE SLIDE TURNS", font=f_med, fill=(255, 214, 102, 255))
+    right = f"ep {episode} - frame {frame_idx:03d} - cast {len(tracks)} - CNC follow"
+    d.text((sw - d.textlength(right, font=f_small) - 6, 5), right,
+           font=f_small, fill=(220, 220, 220, 230))
+
+    # Caption bar.
+    if caption is not None and caption.lines:
+        lines = []
+        for ln in caption.lines[: max(1, cfg.caption_lines)]:
+            lines.extend(_wrap(d, ln, f_med, sw - 24))
+        lines = lines[: max(1, cfg.caption_lines) + 1]
+        bar_h = 12 + 20 * len(lines)
+        d.rectangle([0, sh - bar_h, sw, sh], fill=(0, 0, 0, 170))
+        d.rectangle([0, sh - bar_h, sw, sh - bar_h + 3], fill=(255, 214, 102, 220))
+        for i, ln in enumerate(lines):
+            fill = (255, 255, 255, 240) if i == 0 else (200, 220, 255, 230)
+            d.text((12, sh - bar_h + 8 + i * 20), ln, font=f_med, fill=fill)
+
+    out = Image.alpha_composite(base, overlay).convert("RGB")
+    if cfg.scale and cfg.scale != 1:
+        out = out.resize((sw * cfg.scale, sh * cfg.scale), Image.NEAREST)
+    return np.asarray(out, dtype=np.uint8)

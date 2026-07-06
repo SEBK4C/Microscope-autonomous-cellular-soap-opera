@@ -33,7 +33,7 @@ video → segment → track → features → drama → stage → render
 | **Segment** | classical numpy CC (polarity / adaptive / temporal) | **FastSAM / MobileSAM / SAM** (drop-in; see below) |
 | **Track** | Kalman + Hungarian, stable IDs (MOTA-measured) | SAM3 video propagation |
 | **Drama** | offline template narrator with feud/romance memory | **local LLM narrator** (drop-in; see below) → VLM |
-| **Stage** | `SimulatedStage` + JSON-lines protocol | real **CNC over serial** |
+| **Stage** | `SimulatedStage` + JSON protocol; **moving-crop pan** across a larger slide | real **CNC over serial** |
 | **Render** | annotated GIF + transcript | mp4, live web viewer |
 
 ## Quickstart
@@ -151,6 +151,24 @@ microcontroller (Arduino / RP2040 / ESP32) speaks newline-delimited JSON over
 USB serial — see [`hardware/`](hardware/) for the protocol and a firmware stub.
 `SimulatedStage` implements the same interface so the entire control loop is
 testable from static video.
+
+### Moving-crop stage — following microbes across the slide
+
+![Moving CNC stage](docs/moving_demo.png)
+
+When the slide is larger than the camera, the stage **pans to follow the star**
+and microbes drift in and out of view — the brief's core premise, made literal:
+
+```bash
+python -m soapscope.cli demo --moving --world-scale 1.8
+```
+
+The minimap (top-right) shows the whole slide with every microbe as a dot and a
+yellow rectangle marking where the camera is looking. Tracking runs in **world
+coordinates** (stage-motion-compensated), so the stage panning isn't mistaken
+for microbe motion. Each frame emits a `move_abs` command — the same stream real
+CNC hardware would execute. Following cut the star's off-centre distance ~41% vs
+a frozen stage, panning ~1000 px across the slide to do it.
 
 ## Autoresearch
 

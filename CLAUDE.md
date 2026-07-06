@@ -44,7 +44,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | `soapscope/drama/characters.py` | persistent names + soap archetypes | — |
 | `soapscope/drama/captioner.py` | `TemplateCaptioner` (instant, offline) + `LLMCaptioner` (local HF LLM via `llm_backend.py`) | grounded VLM captions |
 | `soapscope/stage/api.py` | `CNCStage` interface, `SimulatedStage`, JSON-lines protocol | `SerialStage` → real microcontroller |
-| `soapscope/stage/controller.py` | "director" picks the star, rate-limited follow | closed-loop focus/zoom |
+| `soapscope/stage/controller.py` | "director" star pick + rate-limited follow; `moving.py` pans a sensor across a larger slide (world-coord tracking) | closed-loop focus/zoom |
 | `soapscope/render/overlay.py` | masks, names, trails, CNC viewport, caption bar | mp4 output, live web viewer |
 | `soapscope/pipeline.py` | wires it all together | — |
 | `soapscope/metrics.py` | autoresearch `score` + MOTA / ID-switch (GT) | funniness metrics |

@@ -45,6 +45,7 @@ class PipelineResult:
     metrics: Metrics
     config: PipelineConfig
     segmenter_polarity: Optional[str] = None   # what the classical segmenter resolved
+    moving: Optional[dict] = None              # moving-stage stats (offset, travel, ...)
 
 
 class Pipeline:
@@ -117,6 +118,103 @@ class Pipeline:
             records=records, stage_commands=stage_cmds, metrics=metrics,
             config=cfg,
             segmenter_polarity=getattr(self.segmenter, "last_polarity", None))
+
+    def run_moving(self, world_frames: Iterable,
+                   collect_frames: bool = True) -> PipelineResult:
+        """Moving-crop stage: pan a sensor window across a larger slide (world).
+
+        Segments the sensor crop, lifts detections to WORLD coords, tracks there
+        (stage-motion-compensated), and pans the stage to follow the star.
+        """
+        import math
+        from .render.overlay import render_moving_frame
+        from .stage.moving import MovingStageController
+        from .vision.segment import Detection
+
+        cfg = self.cfg
+        annotated: List[np.ndarray] = []
+        records: List[FrameRecord] = []
+        stage_cmds: List[dict] = []
+        detections_per_frame: List[int] = []
+        frame_tracks: List = []
+        track_lengths: dict = {}
+        gts: List = []
+        mover = None
+        offsets: List[float] = []
+        travel = 0.0
+        star_frames = 0
+        star_in = 0
+
+        t0 = time.perf_counter()
+        for i, item in enumerate(world_frames):
+            wframe, wgt = item if isinstance(item, tuple) else (item, None)
+            WH, WW = wframe.shape[:2]
+            sh, sw = min(cfg.world.height, WH), min(cfg.world.width, WW)
+            if mover is None:
+                self.analyzer = FeatureAnalyzer(WH, WW)
+                mover = MovingStageController(cfg.stage, WH, WW, sh, sw)
+
+            y0, x0 = mover.crop_origin()
+            sensor = wframe[y0:y0 + sh, x0:x0 + sw]
+            seg = self.segmenter.segment(sensor)
+            world_dets = [Detection(
+                label=d.label, area=d.area,
+                centroid=(d.centroid[0] + y0, d.centroid[1] + x0),
+                bbox=(d.bbox[0] + y0, d.bbox[1] + x0, d.bbox[2] + y0, d.bbox[3] + x0),
+            ) for d in seg.detections]
+
+            self.tracker.update(world_dets)
+            confirmed = self.tracker.confirmed_tracks()
+            feats = self.analyzer.step(
+                i, confirmed, self.tracker.entered, self.tracker.exited)
+            caption = self.captioner.update(i, feats, self.registry)
+
+            pre = (mover.cy, mover.cx)
+            mstep = mover.step(confirmed, feats)
+            travel += math.hypot(mover.cy - pre[0], mover.cx - pre[1])
+            by_id = {t.id: t for t in confirmed}
+            if mstep.star_id in by_id:
+                s = by_id[mstep.star_id]
+                offsets.append(math.hypot(s.cy - pre[0], s.cx - pre[1]))
+                star_frames += 1
+                if mstep.star_in_frame:
+                    star_in += 1
+
+            for t in confirmed:
+                track_lengths[t.id] = track_lengths.get(t.id, 0) + 1
+            frame_tracks.append([(t.id, t.cy, t.cx) for t in confirmed])
+            gts.append(wgt)
+            detections_per_frame.append(len(seg.detections))
+            cmd = {"t": i, "cmd": "move_abs",
+                   "x": round(mover.cx, 1), "y": round(mover.cy, 1)}
+            stage_cmds.append(cmd)
+            records.append(FrameRecord(
+                frame_idx=i, n_detections=len(seg.detections),
+                n_tracks=len(confirmed), star_id=mstep.star_id,
+                caption=caption.headline if caption else "", stage_cmd=cmd))
+
+            if collect_frames and cfg.render.enabled:
+                annotated.append(render_moving_frame(
+                    sensor, seg, confirmed, self.registry, caption, mstep,
+                    (y0, x0), (WH, WW), (sh, sw), cfg.render, i))
+        elapsed = time.perf_counter() - t0
+
+        metrics = compute_metrics(
+            n_frames=len(records), elapsed_s=elapsed,
+            detections_per_frame=detections_per_frame, track_lengths=track_lengths,
+            frame_tracks=frame_tracks, gts=gts,
+            caption_headlines=[e.headline for e in self.captioner_transcript()],
+            caption_kinds=[e.kind for e in self.captioner_transcript()])
+        moving = {
+            "mean_star_offset": (sum(offsets) / len(offsets)) if offsets else None,
+            "stage_travel": travel,
+            "star_in_frame_pct": (star_in / star_frames) if star_frames else None,
+        }
+        return PipelineResult(
+            frames=annotated, transcript=self.captioner_transcript(),
+            records=records, stage_commands=stage_cmds, metrics=metrics,
+            config=cfg, segmenter_polarity=getattr(self.segmenter, "last_polarity", None),
+            moving=moving)
 
     def captioner_transcript(self) -> List[CaptionEvent]:
         return getattr(self.captioner, "transcript", [])

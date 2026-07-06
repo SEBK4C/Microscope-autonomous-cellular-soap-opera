@@ -63,7 +63,12 @@ class SyntheticWorld:
     def __init__(self, cfg: WorldConfig):
         self.cfg = cfg
         self.rng = np.random.RandomState(cfg.seed)
-        self.H, self.W = cfg.height, cfg.width
+        # Sensor = what the camera captures; world (slide) = sensor * world_scale.
+        # Physics and rendering happen in WORLD coords (self.H/W); at scale 1.0
+        # the world equals the sensor, so all non-moving behaviour is unchanged.
+        self.sensor_h, self.sensor_w = cfg.height, cfg.width
+        self.H = int(round(cfg.height * cfg.world_scale))
+        self.W = int(round(cfg.width * cfg.world_scale))
         self._next_gid = 0
         self.microbes: List[_Microbe] = []
         self._bg = self._make_background()

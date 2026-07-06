@@ -70,6 +70,13 @@ class StageController:
             return best
         return self.star_id
 
+    def pick_star(self, tracks: List[Track], feats: FrameFeatures) -> Optional[int]:
+        """Drama-weighted star selection with hysteresis (reusable by the mover)."""
+        live = {t.id for t in tracks}
+        scores = self._drama_scores(feats, live)
+        self.star_id = self._pick_star(scores, live)
+        return self.star_id
+
     def step(self, tracks: List[Track], feats: FrameFeatures) -> StageStep:
         live = {t.id for t in tracks}
         by_id = {t.id: t for t in tracks}

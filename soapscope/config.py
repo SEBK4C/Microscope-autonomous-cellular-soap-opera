@@ -25,6 +25,7 @@ class WorldConfig:
     brownian: float = 0.9     # random-walk jitter magnitude
     seed: int = 7
     style: str = "darkfield"  # darkfield (bright microbes/dark bg) | brightfield (dark microbes/light bg)
+    world_scale: float = 1.0  # slide size / sensor size; >1 => world larger than the camera (moving stage)
 
 
 @dataclass
