@@ -16,15 +16,17 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Real video output.** mp4 via `imageio-ffmpeg` (installed); optional live web
-   viewer that streams annotated frames + captions (near-real-time from webcam).
-2. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+1. **Live web viewer.** A near-real-time dashboard: stream the annotated frames
+   (MJPEG / SSE) + a live caption ticker + the slide minimap to a browser page,
+   so an episode can be watched *as it runs* (and later, from a webcam). Verify
+   by serving the synthetic pipeline and screenshotting the browser.
+2. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+   synthetic bench (0.96 vs 0.93); consider making adaptive the default once
+   validated on more real clips. *Metric:* synthetic score; real-clip frag.
+3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-3. **Adaptive by default?** auto+adaptive beat the dark-field default on the
-   synthetic bench (0.96 vs 0.93); consider making adaptive the default once
-   validated on more real clips. *Metric:* synthetic score; real-clip frag.
 4. **TTS narrator** (optional): speak the caption bar with an announcer voice.
 5. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
    temporal-mode background compensation so the moving crop can use motion
@@ -585,3 +587,42 @@ soap. **Nit fixed mid-iteration:** naive ordinal ("3th") → proper `_ordinal`
 
 **Next:** backlog #1 — real video output (mp4 via imageio-ffmpeg) so episodes are
 shareable beyond GIFs.
+
+---
+
+## 2026-07-06 — Iteration 11: mp4 export + a shareable episode page
+
+**Picked:** backlog #1 (real video output). Make an episode a proper, shareable
+deliverable — not just a heavy GIF.
+
+**Built:**
+
+- **`video.io.save_mp4`** — H.264 mp4 via imageio-ffmpeg (lazy; graceful
+  ImportError → falls back to GIF). **54× smaller** than the GIF (260 KB vs
+  14 MB for the same 70-frame episode) and higher quality.
+- **`render/episode_page.py`** — a **self-contained HTML episode page**: the
+  video embedded as a base64 data-URI (no external assets → shareable/offline
+  forever), production-stat tiles (recall / fps / cast / MOTA / beats), and the
+  full transcript styled as a shooting script with the recap + cliffhanger cards
+  called out. Deliberate single-theme "on-air broadcast" design (dark-field
+  microscope × daytime-TV title card; gold serif; system fonts only).
+- **`--format {gif,mp4,both}`** on `demo`/`run`; `_write_outputs` now also emits
+  `episode.html`. 4 new tests. **67 green.**
+
+**Verified visually** by rendering the page in headless Chromium (screenshot:
+`docs/episode_page.png`) — and it caught a **real CSS bug**: `background:… fixed`
+doesn't extend past the viewport in a full-page render, leaving a white band with
+unreadable light text at the bottom. Fixed it (solid `--bg` + a header-only
+radial glow); re-screenshotted to confirm the whole page is dark and the
+cliffhanger card reads cleanly.
+
+**What worked:** embedding the *mp4* (not the gif) as the data-URI keeps the
+self-contained page small (~350 KB vs multi-MB). Screenshotting the generated
+HTML in a real browser is the right verification for a visual deliverable — it
+found a bug that reading the CSS did not.
+
+**Scope note:** the "live webcam viewer" half of this backlog item (streaming as
+it runs) is genuinely separate work — split out as the new backlog #1.
+
+**Next:** backlog #1 — a live web viewer (stream annotated frames + a caption
+ticker to a browser, near-real-time).

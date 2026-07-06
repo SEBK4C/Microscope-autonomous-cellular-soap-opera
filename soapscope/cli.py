@@ -18,12 +18,38 @@ from .config import PipelineConfig
 from .pipeline import Pipeline, run_synthetic
 
 
-def _write_outputs(res, out_dir: Path, fps: int) -> None:
-    from .video.io import save_gif, save_png
+def _episode_stats(res):
+    m = res.metrics
+    return [
+        ("recall", f"{m.gt_recall:.0%}" if m.gt_recall is not None else "n/a"),
+        ("fps", f"{m.fps:.0f}"),
+        ("cast", str(m.n_tracks_total)),
+        ("MOTA", f"{m.mota:.2f}" if m.mota is not None else "n/a"),
+        ("beats", str(m.caption_count)),
+    ]
+
+
+def _write_outputs(res, out_dir: Path, fps: int, fmt: str = "gif") -> None:
+    from .video.io import save_gif, save_mp4, save_png
+    from .render.episode_page import save_episode_html
     out_dir.mkdir(parents=True, exist_ok=True)
+    media_path, media_mime = None, None
     if res.frames:
-        save_gif(res.frames, out_dir / "episode.gif", fps=fps)
         save_png(res.frames[len(res.frames) // 2], out_dir / "frame.png")
+        want_mp4 = fmt in ("mp4", "both")
+        want_gif = fmt in ("gif", "both")
+        if want_mp4:
+            try:
+                save_mp4(res.frames, out_dir / "episode.mp4", fps=fps)
+                media_path, media_mime = out_dir / "episode.mp4", "video/mp4"
+            except ImportError:
+                print("[out] mp4 needs .[video]; falling back to gif")
+                want_gif = True
+        if want_gif:
+            gif = save_gif(res.frames, out_dir / "episode.gif", fps=fps)
+            if media_path is None:
+                media_path, media_mime = gif, "image/gif"
+
     with open(out_dir / "transcript.txt", "w", encoding="utf-8") as fh:
         for ev in res.transcript:
             fh.write(f"[{ev.frame_idx:04d}] ({ev.kind}) " + " / ".join(ev.lines) + "\n")
@@ -32,6 +58,14 @@ def _write_outputs(res, out_dir: Path, fps: int) -> None:
             fh.write(json.dumps(c) + "\n")
     with open(out_dir / "metrics.json", "w", encoding="utf-8") as fh:
         json.dump(res.metrics.as_dict(), fh, indent=2)
+
+    if media_path is not None:
+        rows = [(ev.frame_idx, ev.kind, ev.headline) for ev in res.transcript]
+        subtitle = (f"{len(res.records)} frames · score {res.metrics.score:.2f} · "
+                    f"{res.metrics.fps:.0f} fps")
+        save_episode_html(out_dir / "episode.html", media_path.read_bytes(),
+                          media_mime, "As the Slide Turns", subtitle,
+                          rows, _episode_stats(res))
 
 
 def cmd_demo(args) -> int:
@@ -73,7 +107,7 @@ def cmd_demo(args) -> int:
         res = run_synthetic(cfg, collect_frames=True)
 
     out_dir = Path(args.out)
-    _write_outputs(res, out_dir, cfg.render.fps)
+    _write_outputs(res, out_dir, cfg.render.fps, fmt=args.format)
     print("[demo]", res.metrics.summary())
     if res.moving and res.moving.get("mean_star_offset") is not None:
         print(f"[demo] moving: star_offset={res.moving['mean_star_offset']:.0f}px "
@@ -123,7 +157,7 @@ def cmd_run(args) -> int:
               f"adaptive={args.adaptive}) …")
     res = Pipeline(cfg).run(frames, collect_frames=True)
     out_dir = Path(args.out)
-    _write_outputs(res, out_dir, cfg.render.fps)
+    _write_outputs(res, out_dir, cfg.render.fps, fmt=args.format)
     print("[run]", res.metrics.summary())
     if res.segmenter_polarity:
         print(f"[run] resolved polarity: {res.segmenter_polarity}")
@@ -202,6 +236,8 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--width", type=int, default=0)
     d.add_argument("--height", type=int, default=0)
     d.add_argument("--no-stage", action="store_true")
+    d.add_argument("--format", choices=["gif", "mp4", "both"], default="gif",
+                   help="episode media: gif (no deps), mp4 (needs .[video]), or both")
     d.add_argument("--moving", action="store_true",
                    help="moving-crop CNC stage: pan a sensor across a larger slide")
     d.add_argument("--world-scale", type=float, default=1.8,
@@ -236,6 +272,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--stride", type=int, default=1, help="keep every Nth video frame")
     r.add_argument("--max-frames", type=int, default=240)
     r.add_argument("--max-width", type=int, default=640, help="downscale wide footage")
+    r.add_argument("--format", choices=["gif", "mp4", "both"], default="gif",
+                   help="episode media: gif (no deps), mp4 (needs .[video]), or both")
     r.add_argument("--out", default="out")
     r.set_defaults(func=cmd_run)
 

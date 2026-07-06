@@ -46,7 +46,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | `soapscope/drama/season.py` | `SeasonMemory` + `Showrunner`: cross-episode lore, "Previously on…" recap, cliffhanger | multi-season arcs |
 | `soapscope/stage/api.py` | `CNCStage` interface, `SimulatedStage`, JSON-lines protocol | `SerialStage` → real microcontroller |
 | `soapscope/stage/controller.py` | "director" star pick + rate-limited follow; `moving.py` pans a sensor across a larger slide (world-coord tracking) | closed-loop focus/zoom |
-| `soapscope/render/overlay.py` | masks, names, trails, CNC viewport, caption bar | mp4 output, live web viewer |
+| `soapscope/render/overlay.py` + `episode_page.py` | masks/names/trails/viewport/caption bar; mp4 + a self-contained HTML episode page | live web viewer |
 | `soapscope/pipeline.py` | wires it all together | — |
 | `soapscope/metrics.py` | autoresearch `score` + MOTA / ID-switch (GT) | funniness metrics |
 | `soapscope/autoresearch/loop.py` | hill-climb over `PipelineConfig` | smarter proposers |

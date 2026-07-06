@@ -39,6 +39,24 @@ def save_gif(frames: Sequence[np.ndarray], path: str | Path, fps: int = 12,
     return path
 
 
+def save_mp4(frames: Sequence[np.ndarray], path: str | Path, fps: int = 12) -> Path:
+    """Write frames to an H.264 mp4 (small + high quality; needs imageio-ffmpeg)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not len(frames):
+        raise ValueError("no frames to save")
+    try:
+        import imageio.v3 as iio  # type: ignore
+    except ImportError as e:
+        raise ImportError(
+            "mp4 output needs imageio + a decoder: `pip install -e .[video]` "
+            "(imageio, imageio-ffmpeg). GIF output has no such dependency."
+        ) from e
+    stack = np.stack([np.asarray(f, dtype=np.uint8) for f in frames])
+    iio.imwrite(path, stack, fps=fps, codec="libx264", pixelformat="yuv420p")
+    return path
+
+
 def load_frames_dir(directory: str | Path,
                     pattern: str = "*") -> Iterator[np.ndarray]:
     """Yield frames from an ordered directory of images (a real-video source)."""

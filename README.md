@@ -34,7 +34,7 @@ video → segment → track → features → drama → stage → render
 | **Track** | Kalman + Hungarian, stable IDs (MOTA-measured) | SAM3 video propagation |
 | **Drama** | template / **local LLM** / **BLIP-grounded VLM** narrators | bigger VLM, two-stage |
 | **Stage** | `SimulatedStage` + JSON protocol; **moving-crop pan** across a larger slide | real **CNC over serial** |
-| **Render** | annotated GIF + transcript | mp4, live web viewer |
+| **Render** | annotated GIF / **mp4** + a self-contained **episode page** | live web viewer |
 
 ## Quickstart
 
@@ -45,6 +45,18 @@ pip install -e .            # core deps: numpy + Pillow only
 python -m soapscope.cli demo
 # → out/episode.gif, out/transcript.txt, out/stage_commands.jsonl, out/metrics.json
 ```
+
+Each run also writes a **self-contained `episode.html`** — the video plus the
+full transcript in one shareable file (open it in any browser, no internet
+needed):
+
+![Episode page](docs/episode_page.png)
+
+```bash
+python -m soapscope.cli demo --format both   # writes episode.mp4 + episode.gif + episode.html
+```
+
+The mp4 is ~50× smaller than the GIF, so the embedded episode page stays light.
 
 Sample narration (`out/transcript.txt`):
 
