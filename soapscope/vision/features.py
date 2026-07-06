@@ -29,20 +29,38 @@ class FrameFeatures:
     beats: List[Beat]
     per_track: Dict[int, dict]       # tid -> {speed, heading, area, nearest, nearest_dist}
 
-    def top(self, star_id: Optional[int] = None) -> Optional[Beat]:
+    def top(self, star_id: Optional[int] = None,
+            synthesize: bool = False) -> Optional[Beat]:
         """The beat to narrate. With ``star_id`` (the microbe the camera is
-        following), prefer a beat that microbe *leads* — then any beat it's in —
-        so the narration is about who we're watching. Falls back to the juiciest
-        beat overall when the star is idle or unset (backwards-compatible)."""
-        if not self.beats:
+        following), prefer a beat that microbe *leads*, then any beat it's in
+        (reordering a symmetric collision so the star grammatically leads), so
+        the narration is about who we're watching. With ``synthesize`` we invent
+        a quiet WANDER beat for the star when it has none of its own — "commit to
+        the shot" rather than cut away to off-screen drama. Falls back to the
+        juiciest beat overall when the star is unset (backwards-compatible)."""
+        def _synth() -> Optional[Beat]:
+            if synthesize and star_id is not None and star_id in self.per_track:
+                return Beat("WANDER", [star_id], score=1.0,
+                            data={"speed": self.per_track[star_id].get("speed", 0.0)})
             return None
+
+        if not self.beats:
+            return _synth()
         if star_id is not None:
             lead = [b for b in self.beats if b.subjects and b.subjects[0] == star_id]
             if lead:
                 return max(lead, key=lambda b: b.score)
             involved = [b for b in self.beats if star_id in b.subjects]
             if involved:
-                return max(involved, key=lambda b: b.score)
+                b = max(involved, key=lambda b: b.score)
+                # A collision is symmetric — put the star first so it's {A}.
+                if b.kind == "ENCOUNTER" and b.subjects[0] != star_id:
+                    others = [s for s in b.subjects if s != star_id]
+                    return Beat(b.kind, [star_id] + others, b.score, dict(b.data))
+                return b
+            syn = _synth()
+            if syn is not None:
+                return syn
         return max(self.beats, key=lambda b: b.score)
 
 

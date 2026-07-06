@@ -23,11 +23,11 @@ line into a dated entry below.
 2. **Moving-stage residuals** (from iter 7; tighter centering done in iter 14):
    temporal-mode background compensation so the moving crop can use motion
    segmentation; real-video digital-pan follow. *Metric:* star_offset; recall.
-3. **Push coherence past ~65%** (iter 15 lifted it there): remaining misses are
-   when the star is idle (no beat → global fallback) or only a secondary subject.
-   Options: synthesise a star-focused beat when idle, or converge the two star
-   picks at the source. *Metric:* caption_coherence (now reported).
-4. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+3. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+
+*Done — coherence (iter 15–16): 36 %→91 % protagonist-match. The ~9 % residual
+is asymmetric beats (star is the chased, not the chaser) where it's still in the
+narrated action — reframing would change the meaning, so left as-is.*
 
 ---
 
@@ -808,5 +808,64 @@ bug the proof surfaced ("its 3th act" → "escalates to act 3"). **70 green.**
 camera and narrator disagree" is a vibe. **What it taught:** two independent
 selectors optimising the "same" thing (drama) still diverge (smoothed vs
 instantaneous); coherence is its own axis and deserves its own metric.
+
+**Next:** backlog #1 — SAM speed / SAM2 video propagation (GPU/HF-weights gated).
+
+---
+
+## 2026-07-06 — Iteration 16: commit to the shot — coherence 36 %→91 %
+
+**Picked:** backlog #3, the tail of iter-15's coherence work. Iter 15 got
+protagonist-match to ~59 %/68 %; this closes most of the remaining gap.
+
+**Diagnosed the misses first** (4 seeds, star_lock on) — where does the caption
+still wander off the star?
+
+| bucket | non-moving | fix |
+|--------|-----------|-----|
+| star **leads** the beat (coherent) | 55 % | — |
+| star is a **secondary** subject | 15 % | reorder symmetric beats |
+| star had **no beat** → narrate someone else | 23 % | synthesise a star beat |
+| no star that frame | 7 % | n/a |
+
+Two targeted fixes, both in `FrameFeatures.top(star_id, synthesize=…)`:
+
+1. **Commit to the shot.** When the followed star has *no* beat of its own,
+   invent a quiet `WANDER` beat for it (score 1.0, from its live speed) rather
+   than cutting the narration away to off-screen drama. The camera stays on the
+   star, so the narrator should too — that's how real TV holds a shot. Kills the
+   whole "absent" bucket.
+2. **Star leads the collision.** An `ENCOUNTER` is symmetric ("A and B collide"),
+   so when the star is listed second, swap the subjects so it's the grammatical
+   lead `{A}`. (Asymmetric `CHASE`/`FLEE` keep their roles — reframing "X chases
+   star" as "star flees X" would change the meaning.) Returns a *copy*, so the
+   beats list the season Showrunner observes is untouched; rivalry/romance keys
+   are sorted pairs, so the swap can't corrupt them.
+
+**Result** (4 seeds, protagonist-match, off→on star_lock):
+
+| path | iter-14 | iter-15 | **iter-16** | variety | score |
+|------|--------|--------|------------|---------|-------|
+| non-moving | 35.7 % | 58.9 % | **91.1 %** | 0.983 | 0.962 |
+| moving | 44.4 % | 68.1 % | **87.5 %** | 1.000 | 0.667 |
+
+The "absent" bucket went **23 %→0 %**; "secondary" **15 %→8 %** (the residual is
+asymmetric chases). **star-involved coherence is now 100 %** — every narrated
+caption is at least *about* a microbe on screen. And it's free: variety and
+score are unchanged from iter 15 (Δscore ≤ 0.002, within fps noise; seed-7 bench
+`coherence 0.52→0.87` at variety 0.958). The synthesised `WANDER` beats don't
+dent variety — the 8-line pool + no-repeat guard from iter 15 absorb them.
+
+**Verified the show still crackles**, not "star wanders, star wanders": dumped
+the seed-7 transcript — DIVIDE scandals, corner-to-corner chases, feuds
+escalating by name. On seed 7 the synthesiser never even fires (the star always
+has real drama); its gain there is pure ENCOUNTER-reorder. The synthesiser earns
+its keep on the seeds where the star goes quiet. **70 green.**
+
+**What worked:** classifying the misses before coding — "23 % absent, 15 %
+secondary" pointed straight at two small, orthogonal fixes instead of one blunt
+one. **What it taught:** coherence and "don't be boring" aren't actually in
+tension once you commit to the shot — a followed star is *drama-picked*, so it
+almost always has something to say; you only synthesise in the rare quiet gap.
 
 **Next:** backlog #1 — SAM speed / SAM2 video propagation (GPU/HF-weights gated).

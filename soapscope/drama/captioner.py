@@ -217,7 +217,8 @@ class TemplateCaptioner(Captioner):
             # Hold the current caption between ticks; keep its frame stamp fresh.
             return self.current  # type: ignore[return-value]
 
-        beat = feats.top(star_id if self.cfg.star_lock else None)
+        beat = feats.top(star_id if self.cfg.star_lock else None,
+                         synthesize=self.cfg.star_lock)
         if beat is None:
             headline = "The pond is calm. Suspiciously calm."
             ev = CaptionEvent(frame_idx=frame_idx, headline=headline,
@@ -347,7 +348,8 @@ class LLMCaptioner(Captioner):
         if not self._is_tick(frame_idx):
             return self.current  # type: ignore[return-value]
 
-        beat = feats.top(star_id if self.cfg.star_lock else None)
+        beat = feats.top(star_id if self.cfg.star_lock else None,
+                         synthesize=self.cfg.star_lock)
         if beat is not None and len(beat.subjects) >= 2:
             key = self._fallback._pair(beat.subjects[0], beat.subjects[1])
             self._history[key] = self._history.get(key, 0) + 1
@@ -441,7 +443,8 @@ class VLMCaptioner(Captioner):
     def update(self, frame_idx, feats, reg, frame=None, tracks=None, star_id=None):
         if not self._is_tick(frame_idx):
             return self.current  # type: ignore[return-value]
-        beat = feats.top(star_id if self.cfg.star_lock else None)
+        beat = feats.top(star_id if self.cfg.star_lock else None,
+                         synthesize=self.cfg.star_lock)
         line = None
         vlm = self._ensure_vlm()
         crop = self._crop_star(beat, frame, tracks) if vlm is not None else None
