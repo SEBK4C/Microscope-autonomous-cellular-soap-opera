@@ -65,7 +65,8 @@ experiment is just "make a config, run it, read `metrics.score`".
 - **speed** — fps / 30 (near-real-time target)
 - **frag** — tracks / GT-ids (1.0 ideal; penalise over/under-segmentation)
 
-Baseline today is ~**0.90**. Improvements must beat the current best on the
+Baseline today is ~**0.94–0.96** (the default is `polarity="auto"` +
+`adaptive=True` as of iter 13). Improvements must beat the current best on the
 fixed synthetic benchmark (seed-locked) to be kept.
 
 ## Conventions

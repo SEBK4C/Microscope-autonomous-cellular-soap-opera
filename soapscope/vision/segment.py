@@ -236,7 +236,13 @@ class ClassicalSegmenter(Segmenter):
         sign of the net deviation robustly reveals polarity — and being
         gradient-relative, it is not fooled by vignetting or uneven lighting.
         """
-        bg = _box_blur(gray, max(6, self.cfg.adaptive_radius))
+        # Cap the background radius to a fraction of the frame: on a large frame
+        # (real footage) this stays at adaptive_radius, but on small frames /
+        # blobs-large-relative-to-frame it prevents the blur "halo" from swamping
+        # the objects and inverting the sign.
+        H, W = gray.shape
+        r = min(max(6, self.cfg.adaptive_radius), max(4, min(H, W) // 8))
+        bg = _box_blur(gray, r)
         resid = gray - bg
         pos = float(np.clip(resid, 0.0, None).sum())
         neg = float(np.clip(-resid, 0.0, None).sum())

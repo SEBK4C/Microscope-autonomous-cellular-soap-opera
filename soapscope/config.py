@@ -35,8 +35,8 @@ class SegmentConfig:
     min_area: int = 25           # drop specks smaller than this (px)
     max_area: int = 20000
     blur: int = 1                # box-blur radius pre-threshold (denoise)
-    polarity: str = "bright"     # bright (dark-field/fluor) | dark (bright-field) | auto (detect per frame)
-    adaptive: bool = False       # local-mean thresholding — robust to gradients & phase halos
+    polarity: str = "auto"       # auto (detect per frame) | bright (dark-field/fluor) | dark (bright-field)
+    adaptive: bool = True        # local-mean thresholding — robust to gradients & phase halos
     adaptive_radius: int = 25    # neighbourhood radius for adaptive background estimate (px)
     median: int = 0              # 3 = 3x3 median denoise pre-threshold (kills compression speckle)
     open_iter: int = 0           # morphological opening iterations on the mask (despeckle)

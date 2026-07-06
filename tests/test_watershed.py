@@ -50,9 +50,11 @@ def test_distance_transform_peaks_at_centre():
 def test_segmenter_watershed_flag_splits_touching():
     frame = _disc_frame(18)
     # blur=0: pre-threshold blur softens the neck and would re-merge the cells.
+    # adaptive=False: isolate the watershed on the raw threshold mask.
     plain = ClassicalSegmenter(SegmentConfig(threshold=0.3, min_area=5, blur=0,
-                                             watershed=False))
+                                             adaptive=False, watershed=False))
     split = ClassicalSegmenter(SegmentConfig(threshold=0.3, min_area=5, blur=0,
-                                             watershed=True, watershed_seed_frac=0.55))
+                                             adaptive=False, watershed=True,
+                                             watershed_seed_frac=0.55))
     assert len(plain.segment(frame).detections) == 1
     assert len(split.segment(frame).detections) == 2

@@ -14,7 +14,7 @@ def _disc(cy, cx, r=6, size=90):
 
 
 def _seg(**kw):
-    base = dict(temporal=True, min_area=5, threshold=0.3)
+    base = dict(temporal=True, min_area=5, threshold=0.3, adaptive=False)
     base.update(kw)
     return ClassicalSegmenter(SegmentConfig(**base))
 

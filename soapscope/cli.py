@@ -80,9 +80,9 @@ def cmd_demo(args) -> int:
     cfg.drama.season_path = args.season
     cfg.world.style = args.style
     cfg.segment.polarity = args.polarity
-    # Bright-field footage segments best with adaptive local thresholding.
-    cfg.segment.adaptive = (args.adaptive if args.adaptive is not None
-                            else args.style == "brightfield")
+    # Adaptive local thresholding is the default (robust to gradients/halos and
+    # slightly better on the bench); --no-adaptive opts out.
+    cfg.segment.adaptive = (args.adaptive if args.adaptive is not None else True)
     if args.width:
         cfg.world.width = args.width
     if args.height:

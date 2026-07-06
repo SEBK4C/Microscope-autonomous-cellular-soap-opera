@@ -51,7 +51,8 @@ def test_temporal_static_scene_is_quiet():
 
 
 def test_vectorized_segment_counts_blobs():
-    seg = ClassicalSegmenter(SegmentConfig(threshold=0.3, min_area=5))
+    seg = ClassicalSegmenter(SegmentConfig(threshold=0.3, min_area=5,
+                                           adaptive=False, polarity="bright"))
     img = np.full((64, 64), 20, np.uint8)
     for (cy, cx) in [(16, 16), (16, 48), (48, 32)]:
         yy, xx = np.mgrid[0:64, 0:64]
