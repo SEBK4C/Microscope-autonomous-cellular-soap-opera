@@ -41,12 +41,18 @@ def cmd_demo(args) -> int:
     cfg.drama.seed = args.seed
     cfg.drama.spice = args.spice
     cfg.stage.enabled = not args.no_stage
+    cfg.world.style = args.style
+    cfg.segment.polarity = args.polarity
+    # Bright-field footage segments best with adaptive local thresholding.
+    cfg.segment.adaptive = (args.adaptive if args.adaptive is not None
+                            else args.style == "brightfield")
     if args.width:
         cfg.world.width = args.width
     if args.height:
         cfg.world.height = args.height
     print(f"[demo] rendering {cfg.n_frames} frames "
-          f"({cfg.world.width}x{cfg.world.height}) seed={args.seed} …")
+          f"({cfg.world.width}x{cfg.world.height}) style={args.style} "
+          f"polarity={args.polarity} adaptive={cfg.segment.adaptive} …")
     res = run_synthetic(cfg, collect_frames=True)
     out_dir = Path(args.out)
     _write_outputs(res, out_dir, cfg.render.fps)
@@ -57,14 +63,29 @@ def cmd_demo(args) -> int:
 
 
 def cmd_run(args) -> int:
-    from .video.io import load_frames_dir
+    import os
+    from .video.io import load_frames_dir, load_video
     cfg = PipelineConfig()
-    frames = load_frames_dir(args.input, pattern=args.pattern)
-    print(f"[run] processing frames from {args.input} …")
+    cfg.segment.polarity = args.polarity      # real clips: auto-detect polarity
+    cfg.segment.adaptive = args.adaptive      # and default to adaptive thresholding
+    if os.path.isdir(args.input):
+        frames = load_frames_dir(args.input, pattern=args.pattern)
+        print(f"[run] processing frame directory {args.input} "
+              f"(polarity={args.polarity}, adaptive={args.adaptive}) …")
+    else:
+        frames = load_video(args.input, stride=args.stride,
+                            max_frames=args.max_frames or None,
+                            max_width=args.max_width or None)
+        print(f"[run] decoding video {args.input} "
+              f"(stride={args.stride}, max_frames={args.max_frames}, "
+              f"max_width={args.max_width}, polarity={args.polarity}, "
+              f"adaptive={args.adaptive}) …")
     res = Pipeline(cfg).run(frames, collect_frames=True)
     out_dir = Path(args.out)
     _write_outputs(res, out_dir, cfg.render.fps)
     print("[run]", res.metrics.summary())
+    if res.segmenter_polarity:
+        print(f"[run] resolved polarity: {res.segmenter_polarity}")
     print(f"[run] wrote {out_dir}/episode.gif and friends")
     return 0
 
@@ -124,15 +145,26 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--frames", type=int, default=140)
     d.add_argument("--seed", type=int, default=7)
     d.add_argument("--spice", type=float, default=1.0)
+    d.add_argument("--style", choices=["darkfield", "brightfield"], default="darkfield",
+                   help="darkfield = bright microbes/dark bg; brightfield = dark microbes/light bg")
+    d.add_argument("--polarity", choices=["bright", "dark", "auto"], default="auto")
+    d.add_argument("--adaptive", action=argparse.BooleanOptionalAction, default=None,
+                   help="local adaptive thresholding (auto-on for brightfield)")
     d.add_argument("--width", type=int, default=0)
     d.add_argument("--height", type=int, default=0)
     d.add_argument("--no-stage", action="store_true")
     d.add_argument("--out", default="out")
     d.set_defaults(func=cmd_demo)
 
-    r = sub.add_parser("run", help="run on a directory of real frames")
-    r.add_argument("--input", required=True)
+    r = sub.add_parser("run", help="run on a real clip (video file or frame directory)")
+    r.add_argument("--input", required=True,
+                   help="a video file (mp4/webm/ogv/…) or a directory of PNG/JPG frames")
     r.add_argument("--pattern", default="*")
+    r.add_argument("--polarity", choices=["bright", "dark", "auto"], default="auto")
+    r.add_argument("--adaptive", action=argparse.BooleanOptionalAction, default=True)
+    r.add_argument("--stride", type=int, default=1, help="keep every Nth video frame")
+    r.add_argument("--max-frames", type=int, default=240)
+    r.add_argument("--max-width", type=int, default=640, help="downscale wide footage")
     r.add_argument("--out", default="out")
     r.set_defaults(func=cmd_run)
 

@@ -185,8 +185,13 @@ class SyntheticWorld:
         cy, cx = H / 2, W / 2
         vig = 1.0 - 0.55 * (((yy - cy) / (H / 2)) ** 2 + ((xx - cx) / (W / 2)) ** 2)
         vig = np.clip(vig, 0.25, 1.0)
-        base = (18 + 26 * illum) * vig
-        bg = np.stack([base * 0.9, base * 1.0, base * 1.08], axis=-1)  # cool tint
+        if self.cfg.style == "brightfield":
+            # Bright, warm, gently-vignetted field (microbes will be darker).
+            base = (150 + 45 * illum) * (0.72 + 0.28 * vig)
+            bg = np.stack([base * 1.02, base * 1.0, base * 0.95], axis=-1)
+        else:
+            base = (18 + 26 * illum) * vig
+            bg = np.stack([base * 0.9, base * 1.0, base * 1.08], axis=-1)  # cool tint
         return np.clip(bg, 0, 255).astype(np.float32)
 
     def _render(self) -> np.ndarray:
@@ -219,13 +224,21 @@ class SyntheticWorld:
             rim = np.clip(1.0 - np.abs(dist - 1.0) / 0.28, 0, 1) * 0.7
             col = np.array(SPECIES[m.species][1], np.float32)
             patch = frame[y0:y1, x0:x1]
-            for ch in range(3):
-                patch[..., ch] = patch[..., ch] * (1 - body) + col[ch] * body
-                patch[..., ch] = np.clip(patch[..., ch] - 45 * rim, 0, 255)
-            # Bright nucleus.
             nucleus = np.clip(1.0 - dist / 0.35, 0, 1)
-            for ch in range(3):
-                patch[..., ch] = np.clip(patch[..., ch] + 60 * nucleus, 0, 255)
+            if self.cfg.style == "brightfield":
+                # Dark, faintly-tinted body that casts a shadow, ringed by a
+                # bright phase-contrast halo, with a slightly darker nucleus.
+                muted = 0.35 * col + 0.65 * np.array([70, 70, 78], np.float32)
+                for ch in range(3):
+                    patch[..., ch] = patch[..., ch] * (1 - 0.7 * body) + muted[ch] * (0.7 * body)
+                    patch[..., ch] = np.clip(patch[..., ch] + 55 * rim, 0, 255)     # bright halo
+                    patch[..., ch] = np.clip(patch[..., ch] - 35 * nucleus, 0, 255)  # dark nucleus
+            else:
+                for ch in range(3):
+                    patch[..., ch] = patch[..., ch] * (1 - body) + col[ch] * body
+                    patch[..., ch] = np.clip(patch[..., ch] - 45 * rim, 0, 255)
+                for ch in range(3):
+                    patch[..., ch] = np.clip(patch[..., ch] + 60 * nucleus, 0, 255)  # bright nucleus
             frame[y0:y1, x0:x1] = patch
         return np.clip(frame, 0, 255).astype(np.uint8)
 

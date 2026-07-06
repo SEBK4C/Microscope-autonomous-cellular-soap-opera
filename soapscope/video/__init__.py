@@ -7,6 +7,9 @@ here later without the rest of the pipeline noticing.
 """
 
 from .synthetic import SyntheticWorld, GroundTruth
-from .io import save_gif, save_png, load_frames_dir
+from .io import save_gif, save_png, load_frames_dir, load_video
 
-__all__ = ["SyntheticWorld", "GroundTruth", "save_gif", "save_png", "load_frames_dir"]
+__all__ = [
+    "SyntheticWorld", "GroundTruth",
+    "save_gif", "save_png", "load_frames_dir", "load_video",
+]

@@ -67,12 +67,34 @@ Each frame also emits a stage command a microcontroller can consume
 ## CLI
 
 ```bash
-soapscope demo --frames 140 --seed 7        # synthetic episode
-soapscope run --input path/to/frames/        # a real clip exported to PNG frames
-soapscope experiment --rounds 12             # autoresearch: hill-climb the config
+soapscope demo --frames 140 --seed 7             # synthetic dark-field episode
+soapscope demo --style brightfield               # dark microbes on a light field
+soapscope run --input clip.webm --max-frames 80  # a real video file (mp4/webm/ogv/…)
+soapscope run --input path/to/frames/            # …or a directory of PNG frames
+soapscope experiment --rounds 12                 # autoresearch: hill-climb the config
 soapscope sweep --param segment.threshold --values 0.2,0.3,0.4
-soapscope protocol                           # print the CNC wire protocol
+soapscope protocol                               # print the CNC wire protocol
 ```
+
+## Real microscopy video
+
+![Bright-field episode](docs/brightfield.gif)
+
+*Bright-field mode: dark microbes with phase halos on a light field — the
+common real-microscopy look, auto-detected and segmented.*
+
+Grab a small public-domain clip and narrate it in two commands:
+
+```bash
+pip install -e .[video]                 # imageio + a bundled ffmpeg (no system ffmpeg needed)
+python scripts/fetch_sample_video.py    # → data/videos/<clip> (Wikimedia Commons, public domain)
+python -m soapscope.cli run --input data/videos/Swift_ciliate.webm --max-frames 80
+```
+
+The segmenter **auto-detects contrast polarity** (bright microbes on dark
+background vs dark microbes on a light one) and uses adaptive local thresholding
+so vignetting and phase halos don't fool it — no per-clip tuning needed to get a
+watchable first cut.
 
 ## The CNC stage as an API
 
@@ -92,9 +114,12 @@ speed. A cron loop drives it every 15 minutes; results land in the journal.
 
 ## Status
 
-Early but end-to-end: **the full stack runs and is measured.** Baseline score
-≈ 0.90 on the synthetic benchmark (94% recall, ~17 fps CPU). Roadmap and
-experiment log: [`AUTORESEARCH_JOURNAL.md`](AUTORESEARCH_JOURNAL.md).
+End-to-end and running on **real internet-sourced microscopy video**, not just
+the synthetic world. Baseline score ≈ 0.90 on the synthetic benchmark (94%
+recall, ~17 fps CPU); auto polarity + adaptive thresholding reaches ≈ 0.96 on
+bright-field. Real clips are watchable out of the box but still fragment into
+short tracks — de-fragmenting them is the current focus. Roadmap and experiment
+log: [`AUTORESEARCH_JOURNAL.md`](AUTORESEARCH_JOURNAL.md).
 
 ## License
 

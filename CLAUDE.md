@@ -37,8 +37,8 @@ video → vision.segment → vision.track → vision.features → drama → stag
 
 | Module | Role | Swap-in later |
 |--------|------|---------------|
-| `soapscope/video/synthetic.py` | deterministic microbe world + ground truth | real clips via `video/io.load_frames_dir` |
-| `soapscope/vision/segment.py` | `ClassicalSegmenter` (pure-numpy CC labelling) | `SamSegmenter` (SAM2/SAM3) |
+| `soapscope/video/synthetic.py` | deterministic dark/bright-field world + ground truth | real clips via `video/io.load_video` / `load_frames_dir` |
+| `soapscope/vision/segment.py` | `ClassicalSegmenter` (pure-numpy CC, polarity-aware + adaptive) | `SamSegmenter` (SAM2/SAM3) |
 | `soapscope/vision/track.py` | greedy NN tracker, stable ids, enter/exit events | Kalman/Hungarian, SAM3 video propagation |
 | `soapscope/vision/features.py` | trajectories → dramatic *beats* | richer interaction model |
 | `soapscope/drama/characters.py` | persistent names + soap archetypes | — |

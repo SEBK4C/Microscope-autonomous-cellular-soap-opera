@@ -129,17 +129,57 @@ class Segmenter:
 class ClassicalSegmenter(Segmenter):
     def __init__(self, cfg: SegmentConfig):
         self.cfg = cfg
+        self.last_polarity: Optional[str] = None   # what "auto" resolved to
+        self._auto_polarity: Optional[str] = None   # cached auto decision (per video)
+
+    def _detect_polarity(self, gray: np.ndarray) -> str:
+        """Do the objects darken or brighten the frame vs their local background?
+
+        Compares the total positive vs negative deviation from a local-mean
+        background. Object *bodies* have far more area than phase halos, so the
+        sign of the net deviation robustly reveals polarity — and being
+        gradient-relative, it is not fooled by vignetting or uneven lighting.
+        """
+        bg = _box_blur(gray, max(6, self.cfg.adaptive_radius))
+        resid = gray - bg
+        pos = float(np.clip(resid, 0.0, None).sum())
+        neg = float(np.clip(-resid, 0.0, None).sum())
+        return "dark" if neg > pos * 1.05 else "bright"
 
     def _score(self, frame: np.ndarray) -> np.ndarray:
+        cfg = self.cfg
         gray = _to_gray(frame)
-        if self.cfg.blur:
-            gray = _box_blur(gray, self.cfg.blur)
-        # Robust illumination-invariant normalisation: microbes sit in the
-        # bright tail above a dim, unevenly-lit background.
-        lo = np.percentile(gray, 45)
-        hi = np.percentile(gray, 99)
-        score = np.clip((gray - lo) / max(hi - lo, 1e-3), 0.0, 1.0)
-        return score
+        if cfg.blur:
+            gray = _box_blur(gray, cfg.blur)
+        pol = cfg.polarity
+        if pol == "auto":
+            # Decide once on the first frame and keep it — a clip's polarity is
+            # fixed, and caching avoids per-frame flicker (and recomputation).
+            if self._auto_polarity is None:
+                self._auto_polarity = self._detect_polarity(gray)
+            pol = self._auto_polarity
+        self.last_polarity = pol
+
+        if not cfg.adaptive:
+            # Global robust normalisation (illumination-invariant). The bright
+            # branch is the original, unchanged default path.
+            if pol == "bright":
+                lo = np.percentile(gray, 45)
+                hi = np.percentile(gray, 99)
+                return np.clip((gray - lo) / max(hi - lo, 1e-3), 0.0, 1.0)
+            # dark: microbes are the low tail — invert.
+            hi = np.percentile(gray, 55)
+            lo = np.percentile(gray, 1)
+            return np.clip((hi - gray) / max(hi - lo, 1e-3), 0.0, 1.0)
+
+        # Adaptive local thresholding: score = deviation from the local mean,
+        # which survives strong illumination gradients and phase-contrast halos.
+        bg = _box_blur(gray, max(3, cfg.adaptive_radius))
+        resid = gray - bg
+        signal = resid if pol == "bright" else -resid
+        signal = np.clip(signal, 0.0, None)
+        hi = np.percentile(signal, 99.5)
+        return np.clip(signal / max(hi, 1e-3), 0.0, 1.0)
 
     def segment(self, frame: np.ndarray) -> SegResult:
         cfg = self.cfg

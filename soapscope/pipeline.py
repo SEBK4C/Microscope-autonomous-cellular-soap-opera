@@ -44,6 +44,7 @@ class PipelineResult:
     stage_commands: List[dict]
     metrics: Metrics
     config: PipelineConfig
+    segmenter_polarity: Optional[str] = None   # what the classical segmenter resolved
 
 
 class Pipeline:
@@ -114,7 +115,8 @@ class Pipeline:
         return PipelineResult(
             frames=annotated, transcript=self.captioner_transcript(),
             records=records, stage_commands=stage_cmds, metrics=metrics,
-            config=cfg)
+            config=cfg,
+            segmenter_polarity=getattr(self.segmenter, "last_polarity", None))
 
     def captioner_transcript(self) -> List[CaptionEvent]:
         return getattr(self.captioner, "transcript", [])

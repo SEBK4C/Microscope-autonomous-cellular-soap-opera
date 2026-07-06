@@ -24,6 +24,7 @@ class WorldConfig:
     flow: float = 0.35        # global drift (the "current" in the flow cell), px/frame
     brownian: float = 0.9     # random-walk jitter magnitude
     seed: int = 7
+    style: str = "darkfield"  # darkfield (bright microbes/dark bg) | brightfield (dark microbes/light bg)
 
 
 @dataclass
@@ -33,6 +34,9 @@ class SegmentConfig:
     min_area: int = 25           # drop specks smaller than this (px)
     max_area: int = 20000
     blur: int = 1                # box-blur radius pre-threshold (denoise)
+    polarity: str = "bright"     # bright (dark-field/fluor) | dark (bright-field) | auto (detect per frame)
+    adaptive: bool = False       # local-mean thresholding — robust to gradients & phase halos
+    adaptive_radius: int = 25    # neighbourhood radius for adaptive background estimate (px)
 
 
 @dataclass
