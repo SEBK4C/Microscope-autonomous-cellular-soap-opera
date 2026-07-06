@@ -16,10 +16,10 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Moving-stage residuals** (from iter 7; tighter centering done in iter 14):
-   temporal-mode background compensation so the moving crop can use motion
-   segmentation; real-video digital-pan follow; try the now-fast FastSAM backend
-   on the moving crop. *Metric:* star_offset; recall.
+1. **Moving-stage residuals** (tighter centering iter 14; FastSAM-on-crop iter 18):
+   real-video digital-pan follow (FastSAM on a fetched clip, panning to follow a
+   star); temporal-mode background compensation so the moving crop can use motion
+   segmentation. *Metric:* star_offset; recall.
 2. **SAM2 video propagation** (FastSAM CPU speed done, iter 17): a SAM2 video
    predictor for true mask *propagation* across frames (real tracking, not
    per-frame segmentation); a GPU path for the heavier SAM variants. Still
@@ -933,3 +933,54 @@ forward pass.
 
 **Next:** backlog #1 — moving-stage residuals (now with a fast SAM to try on the
 crop).
+
+---
+
+## 2026-07-06 — Iteration 18: SAM on the moving stage — the brief, literally
+
+**Picked:** backlog #1, sub-item "try the now-fast FastSAM backend on the moving
+crop." With FastSAM running at ~11 fps (iter 17) and the moving CNC stage from
+iters 7/14, the obvious next move is to wire them together: **SAM segments the
+sensor crop while the stage pans to keep the star centred** — which is the
+project's one-sentence pitch made real.
+
+**Found the gap:** the `demo` command had no `--backend` at all — only `run`
+(real clips) could select SAM. So the marquee ("SAM follows the microbes on the
+CNC stage") wasn't demoable. Fixed by factoring shared `_add_sam_args` /
+`_apply_sam_cfg` helpers and wiring them into **both** `demo` (incl. `--moving`)
+and `run`, so `soapscope demo --moving --backend sam` now runs the whole thing.
+
+**Measured** (moving stage, world_scale 1.8, 60 frames, seed 8, render off):
+
+| backend | fps | recall | star_offset | in-frame |
+|---------|-----|--------|-------------|----------|
+| classical | 9.6 | 0.44 | 34 px | 100 % |
+| **FastSAM @ 384** | 6.5 | **0.56** | 33 px | 100 % |
+| FastSAM @ 512 | 6.2 | **0.60** | 55 px | 100 % |
+
+**FastSAM segments the crop *better* than classical here** (recall 0.56–0.60 vs
+0.44 — on the moving stage recall is capped by what the roving sensor has visited,
+and FastSAM covers more of what's in view) while the stage tracks just as tightly
+(33 px offset, star stays 100 % in-frame). ~6 fps end-to-end on the moving path —
+still interactive, the crop-lift + mover overhead costs a bit vs the 11 fps static
+number. Verified the full CLI path end-to-end (`demo --moving --backend sam`):
+14 tracks, **0 ID switches**, coherent captions.
+
+**Locked it in with 2 torch-free tests:** the CLI wires SAM for both demo and run,
+and the weight resolver's size-guard rejects a 403-error stub (the iter-17 bug) —
+so the integration can't silently regress. **72 green.**
+
+**Proof:** `docs/moving_sam_demo.png` — FastSAM masks on a field of microbes, the
+★ star (Pseudopod) crosshaired as the CNC stage follows it across a 972×648 slide
+through a 540×360 sensor, minimap showing the pan, caption *"The chase is ON:
+Count Dmitri Pseudopod… will NOT let Paramecium get away."* Segmentation +
+tracking + CNC follow + soap narration + star/narrator coherence, all in one
+frame. That's the whole brief.
+
+**What worked:** the interface-first design paying off — swapping the segmenter
+under a moving stage was a config flag once the CLI exposed it; nothing in the
+tracker/stage/drama/render stack changed. **What it taught:** on a roving sensor,
+segmentation *recall* matters more than raw speed — a slower-but-thorough FastSAM
+beats a fast-but-sparser classical pass at actually keeping microbes on the show.
+
+**Next:** backlog #1 — real-video digital-pan follow (FastSAM on a fetched clip).

@@ -68,6 +68,34 @@ def _write_outputs(res, out_dir: Path, fps: int, fmt: str = "gif") -> None:
                           rows, _episode_stats(res))
 
 
+def _add_sam_args(parser, default_imgsz: int = 512) -> None:
+    """Shared --backend/--sam-* flags for any command that segments frames."""
+    parser.add_argument("--backend", choices=["classical", "sam"], default="classical",
+                        help="classical = pure-numpy, near-real-time; sam = FastSAM "
+                             "everything-mode (needs .[sam]; ~11 fps on CPU @ imgsz 384)")
+    parser.add_argument("--sam-backend", default="auto",
+                        help="fastsam | mobile_sam | segment_anything | auto")
+    parser.add_argument("--sam-model", default="FastSAM-s.pt",
+                        help="SAM model name or path (e.g. models/mobile_sam.pt)")
+    parser.add_argument("--sam-imgsz", type=int, default=default_imgsz,
+                        help="SAM inference size (smaller = faster: 384/256)")
+
+
+def _apply_sam_cfg(cfg, args) -> None:
+    """Wire --backend/--sam-* onto a config; print an honest speed note. No-op
+    unless --backend sam. SAM segments directly, so classical knobs don't apply."""
+    if getattr(args, "backend", "classical") != "sam":
+        return
+    cfg.segment.backend = "sam3"
+    cfg.segment.sam_backend = args.sam_backend
+    cfg.segment.sam_model = args.sam_model
+    cfg.segment.sam_imgsz = args.sam_imgsz
+    note = ("FastSAM is near-real-time on CPU (~11 fps @ imgsz 384)"
+            if str(args.sam_backend) in ("auto", "fastsam")
+            else "MobileSAM/SAM everything-mode on CPU is ~0.03 fps (use a GPU)")
+    print(f"[sam] {note}. Weights auto-fetch from HuggingFace into models/.")
+
+
 def cmd_demo(args) -> int:
     cfg = PipelineConfig()
     cfg.n_frames = args.frames
@@ -87,6 +115,7 @@ def cmd_demo(args) -> int:
         cfg.world.width = args.width
     if args.height:
         cfg.world.height = args.height
+    _apply_sam_cfg(cfg, args)   # --backend sam => FastSAM segments the (moving or static) view
 
     if args.moving:
         from .pipeline import Pipeline
@@ -123,15 +152,7 @@ def cmd_run(args) -> int:
     cfg = PipelineConfig()
     cfg.segment.min_area = args.min_area
     if args.backend == "sam":
-        # SAM segments directly; classical denoising knobs don't apply.
-        cfg.segment.backend = "sam3"
-        cfg.segment.sam_backend = args.sam_backend
-        cfg.segment.sam_model = args.sam_model
-        cfg.segment.sam_imgsz = args.sam_imgsz
-        note = ("FastSAM is near-real-time on CPU (~11 fps @ imgsz 384)"
-                if str(args.sam_backend) in ("auto", "fastsam")
-                else "MobileSAM/SAM everything-mode on CPU is ~0.03 fps (use a GPU)")
-        print(f"[run] NOTE: {note}. Weights auto-fetch from HuggingFace into models/.")
+        _apply_sam_cfg(cfg, args)
     else:
         cfg.segment.backend = "classical"
         cfg.segment.polarity = args.polarity  # real clips: auto-detect polarity
@@ -254,6 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="moving-crop CNC stage: pan a sensor across a larger slide")
     d.add_argument("--world-scale", type=float, default=1.8,
                    help="slide size / sensor size for --moving")
+    _add_sam_args(d)   # --backend sam: FastSAM follows the microbes (the brief's marquee)
     d.add_argument("--out", default="out")
     d.set_defaults(func=cmd_demo)
 
@@ -261,14 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--input", required=True,
                    help="a video file (mp4/webm/ogv/…) or a directory of PNG/JPG frames")
     r.add_argument("--pattern", default="*")
-    r.add_argument("--backend", choices=["classical", "sam"], default="classical",
-                   help="classical = pure-numpy, near-real-time; sam = SAM/MobileSAM "
-                        "(needs .[sam] + weights; slow on CPU)")
-    r.add_argument("--sam-backend", default="auto",
-                   help="fastsam | mobile_sam | segment_anything | auto")
-    r.add_argument("--sam-model", default="FastSAM-s.pt",
-                   help="SAM model name or path (e.g. models/mobile_sam.pt)")
-    r.add_argument("--sam-imgsz", type=int, default=512, help="SAM inference size")
+    _add_sam_args(r)
     r.add_argument("--polarity", choices=["bright", "dark", "auto"], default="auto")
     r.add_argument("--adaptive", action=argparse.BooleanOptionalAction, default=True)
     r.add_argument("--temporal", action=argparse.BooleanOptionalAction, default=True,

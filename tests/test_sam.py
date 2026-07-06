@@ -53,6 +53,47 @@ def test_make_segmenter_routes_sam_variants():
     assert make_segmenter(SegmentConfig(backend="sam3"))._backend is None
 
 
+def test_cli_demo_and_run_wire_sam_backend():
+    # The brief's marquee — "SAM follows the microbes" — must be reachable from
+    # BOTH the demo (incl. moving stage) and run commands, without importing torch.
+    from soapscope.cli import build_parser, _apply_sam_cfg
+    from soapscope.config import PipelineConfig
+    parser = build_parser()
+    for argv in (["demo", "--moving", "--backend", "sam", "--sam-imgsz", "384"],
+                 ["run", "--input", "x.mp4", "--backend", "sam",
+                  "--sam-backend", "fastsam"]):
+        args = parser.parse_args(argv)
+        cfg = PipelineConfig()
+        _apply_sam_cfg(cfg, args)
+        assert cfg.segment.backend == "sam3"        # routes to SamSegmenter
+    # imgsz flows through on the demo path
+    args = parser.parse_args(["demo", "--backend", "sam", "--sam-imgsz", "384"])
+    cfg = PipelineConfig()
+    _apply_sam_cfg(cfg, args)
+    assert cfg.segment.sam_imgsz == 384 and cfg.segment.sam_backend == "auto"
+    # classical stays classical (no-op)
+    args = parser.parse_args(["demo"])
+    cfg = PipelineConfig()
+    _apply_sam_cfg(cfg, args)
+    assert cfg.segment.backend == "classical"
+
+
+def test_sam_weight_resolver_size_guard(tmp_path, monkeypatch):
+    # A GitHub-403 error saved as a ".pt" is a tiny file; the resolver must not
+    # treat it as a real checkpoint (that was the iter-17 bug).
+    import soapscope.vision.sam_backend as sb
+    monkeypatch.setattr(sb, "_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(sb, "_fetch_from_hf", lambda name: None)   # no network
+    (tmp_path / "FastSAM-s.pt").write_text('{"message":"403"}')    # ~17-byte stub
+    # The stub in models/ is rejected by the size guard -> falls through to the
+    # bare name, NOT the stub path.
+    assert sb.resolve_weight("FastSAM-s.pt") == "FastSAM-s.pt"
+    # A genuine large local file IS accepted as-is.
+    big = tmp_path / "real.pt"
+    big.write_bytes(b"\0" * 200_000)
+    assert sb.resolve_weight(str(big)) == str(big)
+
+
 def test_sam_missing_backend_raises_actionable_error():
     # segment_anything is never a core dependency -> deterministic failure path.
     seg = SamSegmenter(SegmentConfig(backend="sam3", sam_backend="segment_anything",
