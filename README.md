@@ -30,7 +30,7 @@ video → segment → track → features → drama → stage → render
 | Stage | Today (runs anywhere) | Drops in later |
 |-------|-----------------------|----------------|
 | **Video** | synthetic world + ground truth; PNG-frame folders | real microscopy clips, webcam |
-| **Segment** | classical numpy connected-components | **SAM2 / SAM3** |
+| **Segment** | classical numpy CC (polarity / adaptive / temporal) | **FastSAM / MobileSAM / SAM** (drop-in; see below) |
 | **Track** | greedy nearest-neighbour, stable IDs | Kalman + Hungarian, SAM3 video propagation |
 | **Drama** | offline template narrator with feud/romance memory | local **LLM / VLM** narrator |
 | **Stage** | `SimulatedStage` + JSON-lines protocol | real **CNC over serial** |
@@ -101,6 +101,25 @@ segmentation plus morphological cleanup, which erases static texture and
 compression speckle — on our test clip that cut fragmentation ~6× (77 → 13
 tracks, and mean track length +84%). Add `--no-temporal` for a moving/panning
 stage where the background isn't static.
+
+## SAM segmentation (SAM3 / FastSAM / MobileSAM)
+
+The brief's marquee ask — a SOTA segmentation model — drops in behind the same
+interface:
+
+```bash
+pip install -e .[sam]                        # ultralytics (FastSAM/MobileSAM/SAM)
+# fetch a weight (models/ is git-ignored), then:
+python -m soapscope.cli run --input clip.webm --backend sam \
+    --sam-backend mobile_sam --sam-model models/mobile_sam.pt
+```
+
+`SamSegmenter` runs "segment everything" per frame and adapts the masks to the
+same `Detection` contract the classical path uses, so tracking, drama and the
+CNC stage are unchanged. **Reality check:** on CPU, MobileSAM is ~**0.03 fps**
+(~29 s/frame) vs ~40–55 fps for the classical/temporal path — so SAM is a
+quality/offline (or GPU) option, and classical stays the near-real-time default.
+The pluggable design is the point: pick the backend that fits your hardware.
 
 ## The CNC stage as an API
 

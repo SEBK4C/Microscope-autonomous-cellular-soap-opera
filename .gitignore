@@ -15,6 +15,12 @@ data/videos/
 *.mp4
 *.avi
 *.mov
+
+# Model weights (downloaded on demand; never committed)
+models/
+*.pt
+*.pth
+*.onnx
 # keep small demo gifs/pngs that are intentionally committed under docs/
 !docs/**/*.gif
 !docs/**/*.png

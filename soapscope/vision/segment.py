@@ -266,29 +266,70 @@ class ClassicalSegmenter(Segmenter):
         return SegResult(labels=out, detections=dets)
 
 
-class SamSegmenter(Segmenter):
-    """Placeholder for SAM2 / SAM3.
+def masks_to_segresult(masks, shape, min_area: int, max_area: int) -> SegResult:
+    """Convert a list of per-object boolean masks (SAM output) to a SegResult.
 
-    Later autoresearch iterations install ``torch`` + the SAM checkpoint and
-    fill this in (automatic-mask-generation for the first frame, then video
-    propagation for tracking). It intentionally raises until then so the
-    classical path stays the tested default.
+    Model-agnostic glue: any SAM-family backend produces (N, H, W) masks; this
+    turns them into the exact same Detection/label-map contract the classical
+    path emits, so the tracker/drama/render layers don't care which segmenter
+    ran. Masks are painted largest-first so small objects stay visible on top.
+    """
+    H, W = shape
+    labels = np.zeros((H, W), np.int32)
+    ordered = sorted((np.asarray(m, dtype=bool) for m in masks),
+                     key=lambda m: -int(m.sum()))
+    dets: List[Detection] = []
+    keep = 0
+    for m in ordered:
+        area = int(m.sum())
+        if area < min_area or area > max_area:
+            continue
+        ys, xs = np.nonzero(m)
+        if ys.size == 0:
+            continue
+        keep += 1
+        labels[m] = keep
+        bbox = (int(ys.min()), int(xs.min()), int(ys.max()) + 1, int(xs.max()) + 1)
+        dets.append(Detection(label=keep, centroid=(float(ys.mean()), float(xs.mean())),
+                              bbox=bbox, area=area))
+    return SegResult(labels=labels, detections=dets)
+
+
+class SamSegmenter(Segmenter):
+    """SAM2 / SAM3 (or an equivalent SOTA model) via a lazily-loaded backend.
+
+    Runs automatic "segment everything" mask generation per frame and adapts the
+    masks to the standard ``SegResult``. The heavy torch/ultralytics import lives
+    in ``sam_backend`` and is only touched on first use, so importing soapscope
+    stays light and the classical path remains the tested default. If no backend
+    is installed, ``segment`` raises a clear, actionable error.
     """
 
     def __init__(self, cfg: SegmentConfig):
         self.cfg = cfg
+        self.last_polarity = "sam"
+        self._backend = None
 
-    def segment(self, frame: np.ndarray) -> SegResult:  # pragma: no cover
-        raise NotImplementedError(
-            "SAM backend not installed. `pip install -e .[sam]`, add a checkpoint, "
-            "and implement soapscope.vision.segment.SamSegmenter. Until then use "
-            "backend='classical'."
-        )
+    def _ensure_backend(self):
+        if self._backend is None:
+            from .sam_backend import load_sam_backend
+            self._backend = load_sam_backend(self.cfg)
+        return self._backend
+
+    @property
+    def backend_name(self) -> str:
+        return getattr(self._backend, "name", "unloaded")
+
+    def segment(self, frame: np.ndarray) -> SegResult:
+        backend = self._ensure_backend()
+        masks = backend.generate(np.asarray(frame, dtype=np.uint8))
+        return masks_to_segresult(masks, frame.shape[:2],
+                                  self.cfg.min_area, self.cfg.max_area)
 
 
 def make_segmenter(cfg: SegmentConfig) -> Segmenter:
     if cfg.backend == "classical":
         return ClassicalSegmenter(cfg)
-    if cfg.backend in ("sam2", "sam3"):
+    if cfg.backend in ("sam", "sam2", "sam3"):
         return SamSegmenter(cfg)
     raise ValueError(f"unknown segmentation backend: {cfg.backend!r}")

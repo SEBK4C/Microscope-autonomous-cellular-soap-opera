@@ -41,6 +41,11 @@ class SegmentConfig:
     open_iter: int = 0           # morphological opening iterations on the mask (despeckle)
     temporal: bool = False       # motion foreground: |frame - running background| (static-bg clips)
     bg_alpha: float = 0.04       # EMA rate of the temporal background model (lower = longer memory)
+    # --- SAM backend (used when backend in {sam2, sam3}) ---
+    sam_backend: str = "auto"    # auto | fastsam | mobile_sam | ultralytics_sam | segment_anything
+    sam_model: str = "FastSAM-s.pt"  # model name/path (ultralytics auto-downloads known names)
+    sam_imgsz: int = 512         # inference size (smaller = faster on CPU)
+    sam_conf: float = 0.35       # detection/quality confidence threshold
 
 
 @dataclass

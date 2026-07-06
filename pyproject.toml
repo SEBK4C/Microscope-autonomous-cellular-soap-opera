@@ -17,7 +17,9 @@ dependencies = [
 
 [project.optional-dependencies]
 # Heavy / hardware backends, swapped in during later autoresearch iterations.
-sam = ["torch", "torchvision"]          # SAM2 / SAM3 segmentation + tracking
+# FastSAM/MobileSAM/SAM via ultralytics (auto-downloads weights). On a GPU-less
+# box install CPU torch first: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+sam = ["ultralytics"]
 llm = ["llama-cpp-python"]              # local LLM captioning
 video = ["imageio", "imageio-ffmpeg", "opencv-python"]  # real video I/O
 hardware = ["pyserial"]                # real CNC stage over serial

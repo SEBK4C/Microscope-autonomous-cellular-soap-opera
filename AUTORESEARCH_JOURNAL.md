@@ -16,22 +16,23 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **SAM2/SAM3 segmentation backend.** Implement `SamSegmenter.segment` behind
-   the `[sam]` extra: automatic-mask-generation on the first frame, then video
-   propagation for tracking. Fall back to classical if `torch`/checkpoint
-   absent. NOTE: likely slow on CPU — measure and document the perf caveat.
-   *Metric:* recall & fragmentation vs classical on the real clip; fps budget.
-2. **Local-LLM narrator.** Implement `LLMCaptioner` with llama.cpp/Ollama, a
-   soap-opera system prompt fed the frame's beats + character memory (optionally
-   cropped microbe thumbnails via a small VLM). Keep template as fallback.
-   *Metric:* caption_variety + a human spot-check; must stay near-real-time.
-3. **Temporal+spatial hybrid segmentation.** Motion mode splits large/slow
+1. **Local-LLM narrator.** Implement `LLMCaptioner` with a small HF model
+   (Qwen2.5-0.5B/1.5B via transformers or llama.cpp) — HF weight downloads work
+   here (GitHub releases are proxy-blocked). Soap-opera system prompt fed the
+   frame's beats + character memory; keep the template as fallback. Captions
+   fire every N frames so per-call latency is tolerable. *Metric:* variety + a
+   human spot-check; measure caption latency.
+2. **Temporal+spatial hybrid segmentation.** Motion mode splits large/slow
    objects into leading/trailing crescents and drops stationary ones. Blend the
    motion mask with the spatial (polarity) score, or morphologically close it,
    so bodies stay whole. *Metric:* frag on synthetic-temporal → ~1.0; real-clip
    meanlen holds.
-4. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
-   assignment; add a proper MOTA / ID-switch metric using GT. (Pairs with #3.)
+3. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
+   assignment; add a proper MOTA / ID-switch metric using GT. (Pairs with #2.)
+4. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+   MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
+   true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
+   an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
 5. **Touching-microbe segmentation.** Distance-transform + watershed split so
    two collided microbes don't merge into one track. *Metric:* fragmentation.
 6. **True moving-crop stage.** Make the world larger than the sensor so the CNC
@@ -211,3 +212,57 @@ motion+spatial, or morphological close) is new backlog #3.
 
 **Next:** backlog #1 — the SAM2/SAM3 segmentation backend (the brief's marquee
 ask), with graceful fallback and an honest CPU-perf measurement.
+
+---
+
+## 2026-07-06 — Iteration 3: SAM segmentation backend (real, measured)
+
+**Picked:** backlog #1 — the marquee "SAM3 / equivalent SOTA model, locally"
+ask. Goal: a real SAM-family backend behind the existing `Segmenter` interface,
+with graceful fallback and an honest performance number.
+
+**Built:**
+
+- **`SamSegmenter`** (`vision/segment.py`) — runs "segment everything" per frame
+  via a lazily-loaded backend and adapts the masks to the standard `SegResult`,
+  so the tracker/drama/render layers are unchanged.
+- **`masks_to_segresult`** — model-agnostic glue: any SAM's `(N,H,W)` masks →
+  our `Detection`/label-map contract. Painted largest-first so small objects
+  stay visible. Pure-numpy and fully unit-tested (no torch needed in CI).
+- **`vision/sam_backend.py`** — lazy loaders for FastSAM / MobileSAM / SAM
+  (ultralytics) and Meta `segment-anything`, tried in order, with a clear
+  "install one of…" error if none is present. The heavy imports never touch the
+  core install.
+- **`run --backend sam`** (+ `--sam-backend/--sam-model/--sam-imgsz`); `[sam]`
+  extra = `ultralytics`. Classical stays the default. 5 new tests; **29 green.**
+
+**Verified END TO END on real hardware constraints:** installed CPU torch
+(2.12) + ultralytics, downloaded **MobileSAM (40 MB) from HuggingFace**, and ran
+it through `SamSegmenter` on real ciliate frames — masks → detections →
+SegResult, all flowing correctly.
+
+**The honest number — SAM on CPU is NOT near-real-time:**
+
+| backend | fps (480px frame, CPU) |
+|---------|------------------------|
+| classical / temporal | ~40–55 |
+| **MobileSAM (everything-mode)** | **~0.03 (≈29 s/frame)** |
+
+That's ~1000× slower. So SAM is a **quality/offline option** (or GPU); the
+classical + temporal path remains the near-real-time default. This validates the
+whole pluggable-backend design — the brief's "SAM3 … near real-time, local" is
+only jointly achievable with a GPU, and the architecture lets you choose.
+
+**Environment findings (useful for later iterations):** the agent proxy
+**allows pip (pypi) and HuggingFace downloads, but blocks GitHub release assets
+(403)** — so ultralytics' auto-download of FastSAM/MobileSAM weights fails;
+fetch weights from HF instead (as done here for MobileSAM). Logged so the LLM
+narrator iteration pulls its model from HF too.
+
+**What worked:** interface-first design paid off again — SAM dropped in with zero
+changes to tracking/drama/stage/render. **What didn't:** FastSAM weights aren't
+on an HF path I found (GitHub-only → 403), so I used MobileSAM; FastSAM
+everything-mode (faster) is backlog #4.
+
+**Next:** backlog #1 — the local-LLM narrator (small HF model), for genuinely
+generative soap-opera captions with the template as fallback.

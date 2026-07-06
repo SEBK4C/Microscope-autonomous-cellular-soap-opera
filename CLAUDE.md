@@ -38,7 +38,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | Module | Role | Swap-in later |
 |--------|------|---------------|
 | `soapscope/video/synthetic.py` | deterministic dark/bright-field world + ground truth | real clips via `video/io.load_video` / `load_frames_dir` |
-| `soapscope/vision/segment.py` | `ClassicalSegmenter` (pure-numpy CC, polarity-aware + adaptive) | `SamSegmenter` (SAM2/SAM3) |
+| `soapscope/vision/segment.py` | `ClassicalSegmenter` (numpy CC; polarity/adaptive/temporal) + `SamSegmenter` (FastSAM/MobileSAM/SAM via `sam_backend.py`) | SAM2 video propagation; GPU |
 | `soapscope/vision/track.py` | greedy NN tracker, stable ids, enter/exit events | Kalman/Hungarian, SAM3 video propagation |
 | `soapscope/vision/features.py` | trajectories → dramatic *beats* | richer interaction model |
 | `soapscope/drama/characters.py` | persistent names + soap archetypes | — |
@@ -74,6 +74,10 @@ fixed synthetic benchmark (seed-locked) to be kept.
 - **Interfaces first.** New backends implement the existing base classes
   (`Segmenter`, `Captioner`, `CNCStage`) so the pipeline never changes.
 - **Determinism.** Seed everything; the benchmark must be reproducible.
+- **Model weights: fetch from HuggingFace.** The agent proxy allows pip (pypi)
+  and HF downloads but **blocks GitHub release assets (403)** — so ultralytics'
+  auto-download fails; pull weights from HF into `models/` (git-ignored).
+  Install CPU torch from `https://download.pytorch.org/whl/cpu`.
 - Keep comments about *constraints*, not narration.
 
 ## Quickstart

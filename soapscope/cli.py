@@ -66,16 +66,26 @@ def cmd_run(args) -> int:
     import os
     from .video.io import load_frames_dir, load_video
     cfg = PipelineConfig()
-    cfg.segment.polarity = args.polarity      # real clips: auto-detect polarity
-    cfg.segment.adaptive = args.adaptive      # and default to adaptive thresholding
-    # De-fragmentation bundle for noisy real footage (see AUTORESEARCH_JOURNAL #1).
-    cfg.segment.temporal = args.temporal      # motion foreground erases static noise
-    cfg.segment.open_iter = args.open         # despeckle the mask
     cfg.segment.min_area = args.min_area
-    if args.temporal:                         # coast longer through fast motion
-        cfg.track.max_missed = 12
-        cfg.track.max_dist = 65.0
-        cfg.track.min_hits = 3
+    if args.backend == "sam":
+        # SAM segments directly; classical denoising knobs don't apply.
+        cfg.segment.backend = "sam3"
+        cfg.segment.sam_backend = args.sam_backend
+        cfg.segment.sam_model = args.sam_model
+        cfg.segment.sam_imgsz = args.sam_imgsz
+        print("[run] NOTE: SAM on CPU is far from real-time (~0.03 fps); "
+              "use a GPU, or the default classical backend for speed.")
+    else:
+        cfg.segment.backend = "classical"
+        cfg.segment.polarity = args.polarity  # real clips: auto-detect polarity
+        cfg.segment.adaptive = args.adaptive
+        # De-fragmentation bundle for noisy real footage (AUTORESEARCH_JOURNAL #1).
+        cfg.segment.temporal = args.temporal  # motion foreground erases static noise
+        cfg.segment.open_iter = args.open     # despeckle the mask
+        if args.temporal:                     # coast longer through fast motion
+            cfg.track.max_missed = 12
+            cfg.track.max_dist = 65.0
+            cfg.track.min_hits = 3
     if os.path.isdir(args.input):
         frames = load_frames_dir(args.input, pattern=args.pattern)
         print(f"[run] processing frame directory {args.input} "
@@ -168,6 +178,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--input", required=True,
                    help="a video file (mp4/webm/ogv/…) or a directory of PNG/JPG frames")
     r.add_argument("--pattern", default="*")
+    r.add_argument("--backend", choices=["classical", "sam"], default="classical",
+                   help="classical = pure-numpy, near-real-time; sam = SAM/MobileSAM "
+                        "(needs .[sam] + weights; slow on CPU)")
+    r.add_argument("--sam-backend", default="auto",
+                   help="fastsam | mobile_sam | segment_anything | auto")
+    r.add_argument("--sam-model", default="FastSAM-s.pt",
+                   help="SAM model name or path (e.g. models/mobile_sam.pt)")
+    r.add_argument("--sam-imgsz", type=int, default=512, help="SAM inference size")
     r.add_argument("--polarity", choices=["bright", "dark", "auto"], default="auto")
     r.add_argument("--adaptive", action=argparse.BooleanOptionalAction, default=True)
     r.add_argument("--temporal", action=argparse.BooleanOptionalAction, default=True,
