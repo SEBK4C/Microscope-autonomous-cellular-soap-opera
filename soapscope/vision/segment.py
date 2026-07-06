@@ -174,26 +174,9 @@ class ClassicalSegmenter(Segmenter):
         neg = float(np.clip(-resid, 0.0, None).sum())
         return "dark" if neg > pos * 1.05 else "bright"
 
-    def _score(self, frame: np.ndarray) -> np.ndarray:
+    def _spatial_score(self, gray: np.ndarray) -> np.ndarray:
+        """Polarity-aware "microbe-ness" of the whole blobs (the original path)."""
         cfg = self.cfg
-        gray = _to_gray(frame)
-        if cfg.median >= 3:
-            gray = _median3(gray)
-        if cfg.blur:
-            gray = _box_blur(gray, cfg.blur)
-
-        if cfg.temporal:
-            # Motion foreground: deviation from a slowly-updated background.
-            # Polarity-agnostic and it erases static texture / compression noise
-            # — ideal for a mostly-still microscope field with drifting microbes.
-            if self._bg is None:
-                self._bg = gray.copy()
-            diff = np.abs(gray - self._bg)
-            self._bg = (1.0 - cfg.bg_alpha) * self._bg + cfg.bg_alpha * gray
-            self.last_polarity = "temporal"
-            hi = np.percentile(diff, 99.5)
-            return np.clip(diff / max(hi, 1e-3), 0.0, 1.0)
-
         pol = cfg.polarity
         if pol == "auto":
             # Decide once on the first frame and keep it — a clip's polarity is
@@ -223,6 +206,39 @@ class ClassicalSegmenter(Segmenter):
         signal = np.clip(signal, 0.0, None)
         hi = np.percentile(signal, 99.5)
         return np.clip(signal / max(hi, 1e-3), 0.0, 1.0)
+
+    def _score(self, frame: np.ndarray) -> np.ndarray:
+        cfg = self.cfg
+        gray = _to_gray(frame)
+        if cfg.median >= 3:
+            gray = _median3(gray)
+        if cfg.blur:
+            gray = _box_blur(gray, cfg.blur)
+
+        if not cfg.temporal:
+            return self._spatial_score(gray)
+
+        # Motion foreground: deviation from a slowly-updated background.
+        # Erases static texture / compression noise — ideal for a mostly-still
+        # microscope field with drifting microbes.
+        if self._bg is None:
+            self._bg = gray.copy()
+        diff = np.abs(gray - self._bg)
+        self._bg = (1.0 - cfg.bg_alpha) * self._bg + cfg.bg_alpha * gray
+        motion = np.clip(diff / max(float(np.percentile(diff, 99.5)), 1e-3), 0.0, 1.0)
+
+        if not cfg.hybrid:
+            self.last_polarity = "temporal"
+            return motion
+
+        # Hybrid: take the WHOLE-body spatial score but keep it only where there
+        # is motion nearby. Motion gates out static texture/noise; the spatial
+        # score fills in solid bodies — so a moving blob is one detection, not
+        # the leading/trailing crescents pure motion produces.
+        spatial = self._spatial_score(gray)
+        active = _binary_dilate(motion >= cfg.motion_gate, max(1, cfg.motion_dilate))
+        self.last_polarity = "hybrid"
+        return spatial * active
 
     def segment(self, frame: np.ndarray) -> SegResult:
         cfg = self.cfg

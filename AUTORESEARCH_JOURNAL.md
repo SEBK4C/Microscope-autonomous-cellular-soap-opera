@@ -16,34 +16,31 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Temporal+spatial hybrid segmentation.** Motion mode splits large/slow
-   objects into leading/trailing crescents and drops stationary ones. Blend the
-   motion mask with the spatial (polarity) score, or morphologically close it,
-   so bodies stay whole. *Metric:* frag on synthetic-temporal → ~1.0; real-clip
-   meanlen holds.
-2. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
-   assignment; add a proper MOTA / ID-switch metric using GT. (Pairs with #1.)
-3. **VLM captioner.** Feed cropped microbe thumbnails to a small local
+1. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
+   (Hungarian) assignment; add a proper MOTA / ID-switch metric using GT.
+   Reduces ID switches on crossings and further de-fragments real footage.
+   (No scipy — implement a compact Hungarian or Kalman-gated greedy.)
+2. **VLM captioner.** Feed cropped microbe thumbnails to a small local
    vision-language model (SmolVLM / moondream via transformers) so captions are
    grounded in what the microbe actually looks like, not just the beat label.
    Keep template + LLM as fallbacks. *Metric:* human spot-check; latency.
-4. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-5. **Touching-microbe segmentation.** Distance-transform + watershed split so
+4. **Touching-microbe segmentation.** Distance-transform + watershed split so
    two collided microbes don't merge into one track. *Metric:* fragmentation.
-6. **True moving-crop stage.** Make the world larger than the sensor so the CNC
+5. **True moving-crop stage.** Make the world larger than the sensor so the CNC
    actually pans across a slide and microbes leave/enter the sensor; add
    stage-motion-compensated tracking (temporal mode then needs bg compensation).
-7. **Season memory.** Persist character bios + relationships to disk across
+6. **Season memory.** Persist character bios + relationships to disk across
    episodes; "Previously, on…" recaps and end-of-episode cliffhangers.
-8. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
+7. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
    that streams annotated frames + captions (near-real-time from webcam).
-9. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+8. **Adaptive by default?** auto+adaptive beat the dark-field default on the
    synthetic bench (0.96 vs 0.93); consider making adaptive the default once
    validated on more real clips. *Metric:* synthetic score; real-clip frag.
-10. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+9. **TTS narrator** (optional): speak the caption bar with an announcer voice.
 
 ---
 
@@ -312,3 +309,46 @@ went 0.73 → 1.0 and cost dropped ~7×.
 
 **Next:** backlog #1 — temporal+spatial hybrid segmentation (fix the motion-mode
 crescent-splitting so bodies stay whole).
+
+---
+
+## 2026-07-06 — Iteration 5: temporal+spatial hybrid segmentation
+
+**Picked:** backlog #1. Pure motion mode splits a moving blob into leading/
+trailing crescents (synthetic-temporal frag = 2.60) and drops stationary ones.
+
+**Built:** a **hybrid** mode (`SegmentConfig.hybrid`, `motion_gate`,
+`motion_dilate`). It takes the whole-body **spatial** (polarity) score but keeps
+it only where there is **motion** nearby (a dilated motion gate). Motion gates
+out static texture; the spatial score fills solid bodies — so a moving blob is
+one detection, not two crescents. Refactored the polarity logic into a reusable
+`_spatial_score` (the non-temporal default path is byte-for-byte unchanged).
+Exposed as `run --hybrid`. 4 new tests (crescents vs whole-body, static
+suppression, default path). **38 green.**
+
+**Measured — a genuinely split result:**
+
+| | synthetic-temporal frag | synthetic tracks | real-clip tracks | real-clip meanlen |
+|---|---|---|---|---|
+| pure motion | **2.60** | 39 | **13** | **18.8** |
+| **hybrid** | **0.73** ✅ | 11 | 127 ❌ (best-tuned 13) | 12.6 |
+
+**Hybrid fixes the synthetic crescents** (frag 2.60 → 0.73, whole bodies, score
+0.79 → 0.87) — the stated goal. **But it loses on the noisy real clip:** the
+compressed webm flickers, so "motion" is everywhere, the gate opens wide, and
+spatial *noise* pours in (127 tracks). Even after tuning the gate/dilate/median,
+the best hybrid on the real clip (13 tracks, meanlen 12.6) still trails pure
+motion (18.8).
+
+**Conclusion (honest):** there is no single winner — **hybrid for CLEAN footage
+(whole bodies), pure motion for NOISY compressed clips (best tracking).** So
+hybrid ships **opt-in** (`--hybrid`) and pure temporal stays the real-clip
+default. The refactor keeps the synthetic default untouched (still 0.94).
+
+**What worked:** the motion-gated-spatial idea cleanly solves crescents on clean
+data. **What didn't:** it can't beat pure motion on compressed footage because
+per-frame noise defeats the motion gate — a real property of the data, not a
+bug. Logged so a future clip-quality heuristic could auto-pick the mode.
+
+**Next:** backlog #1 — Kalman-predicted + Hungarian tracking (fewer ID switches
+on crossings; a proper MOTA metric).

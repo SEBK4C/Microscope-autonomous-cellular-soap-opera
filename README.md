@@ -100,7 +100,9 @@ For noisy real footage, `run` also defaults to **temporal motion-foreground**
 segmentation plus morphological cleanup, which erases static texture and
 compression speckle — on our test clip that cut fragmentation ~6× (77 → 13
 tracks, and mean track length +84%). Add `--no-temporal` for a moving/panning
-stage where the background isn't static.
+stage where the background isn't static. For **clean** footage, `--hybrid` gates
+the whole-body spatial mask by motion so moving microbes stay one blob instead
+of splitting into motion crescents (noisy compressed clips prefer pure motion).
 
 ## SAM segmentation (SAM3 / FastSAM / MobileSAM)
 

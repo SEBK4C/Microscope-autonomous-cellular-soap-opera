@@ -41,6 +41,9 @@ class SegmentConfig:
     open_iter: int = 0           # morphological opening iterations on the mask (despeckle)
     temporal: bool = False       # motion foreground: |frame - running background| (static-bg clips)
     bg_alpha: float = 0.04       # EMA rate of the temporal background model (lower = longer memory)
+    hybrid: bool = False         # temporal: keep whole-body spatial score, gated by motion (no crescents)
+    motion_gate: float = 0.12    # motion level that counts as "active" for the hybrid gate
+    motion_dilate: int = 3       # dilate the motion gate this many px to cover whole bodies
     # --- SAM backend (used when backend in {sam2, sam3}) ---
     sam_backend: str = "auto"    # auto | fastsam | mobile_sam | ultralytics_sam | segment_anything
     sam_model: str = "FastSAM-s.pt"  # model name/path (ultralytics auto-downloads known names)
