@@ -34,7 +34,8 @@ video → segment → track → features → drama → stage → render
 | **Track** | Kalman + Hungarian, stable IDs (MOTA-measured) | SAM3 video propagation |
 | **Drama** | template / **local LLM** / **BLIP-grounded VLM** narrators | bigger VLM, two-stage |
 | **Stage** | `SimulatedStage` + JSON protocol; **moving-crop pan** across a larger slide | real **CNC over serial** |
-| **Render** | annotated GIF / **mp4** + a self-contained **episode page** | live web viewer |
+| **Render** | annotated GIF / **mp4** + a self-contained **episode page** | — |
+| **Live** | **web viewer**: MJPEG stream + caption ticker (stdlib HTTP) | webcam source |
 
 ## Quickstart
 
@@ -85,8 +86,22 @@ soapscope run --input clip.webm --max-frames 80  # a real video file (mp4/webm/o
 soapscope run --input path/to/frames/            # …or a directory of PNG frames
 soapscope experiment --rounds 12                 # autoresearch: hill-climb the config
 soapscope sweep --param segment.threshold --values 0.2,0.3,0.4
+soapscope serve                                  # live web viewer (watch it stream)
 soapscope protocol                               # print the CNC wire protocol
 ```
+
+## Watch it live
+
+![Live web viewer](docs/live_viewer.png)
+
+```bash
+python -m soapscope.cli serve      # then open http://127.0.0.1:8000
+```
+
+A near-real-time dashboard served from the Python standard library (no web
+framework): the annotated feed streams as **MJPEG** into the page while a live
+**caption ticker** and the cast/episode chips update from `/state`. Point the
+source at a webcam and it streams real microscopy the same way.
 
 ## Real microscopy video
 

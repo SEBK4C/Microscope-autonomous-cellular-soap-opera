@@ -58,6 +58,41 @@ class Pipeline:
         self.analyzer: Optional[FeatureAnalyzer] = None
         self.controller: Optional[StageController] = None
 
+    def _step_frame(self, i: int, frame):
+        """Core per-frame compute (segment → track → features → drama → stage).
+
+        Lazily sizes the analyzer/controller to the frame. Shared by ``run``
+        (batch) and ``stream`` (live), so both paths stay identical.
+        """
+        cfg = self.cfg
+        if self.analyzer is None:
+            H, W = frame.shape[:2]
+            self.analyzer = FeatureAnalyzer(H, W)
+            self.controller = StageController(cfg.stage, H, W)
+        seg = self.segmenter.segment(frame)
+        self.tracker.update(seg.detections)
+        confirmed = self.tracker.confirmed_tracks()
+        feats = self.analyzer.step(
+            i, confirmed, self.tracker.entered, self.tracker.exited)
+        caption = self.captioner.update(i, feats, self.registry,
+                                        frame=frame, tracks=confirmed)
+        step = self.controller.step(confirmed, feats)
+        return seg, confirmed, feats, caption, step
+
+    def stream(self, frames: Iterable):
+        """Yield ``(annotated_frame, caption, tracks, stage_step)`` per frame.
+
+        For the live web viewer: same pipeline as ``run`` but a generator that
+        emits each rendered frame as it's produced (near-real-time).
+        """
+        cfg = self.cfg
+        for i, item in enumerate(frames):
+            frame = item[0] if isinstance(item, tuple) else item
+            seg, confirmed, _feats, caption, step = self._step_frame(i, frame)
+            annotated = render_frame(frame, seg, confirmed, self.registry,
+                                     caption, step, cfg.render, i)
+            yield annotated, caption, confirmed, step
+
     def run(self, frames: Iterable, collect_frames: bool = True) -> PipelineResult:
         cfg = self.cfg
         annotated: List[np.ndarray] = []
@@ -86,19 +121,8 @@ class Pipeline:
                 frame, gt = item
             else:
                 frame, gt = item, None
-            if self.analyzer is None:
-                H, W = frame.shape[:2]
-                self.analyzer = FeatureAnalyzer(H, W)
-                self.controller = StageController(cfg.stage, H, W)
 
-            seg = self.segmenter.segment(frame)
-            self.tracker.update(seg.detections)
-            confirmed = self.tracker.confirmed_tracks()
-            feats = self.analyzer.step(
-                i, confirmed, self.tracker.entered, self.tracker.exited)
-            caption = self.captioner.update(i, feats, self.registry,
-                                            frame=frame, tracks=confirmed)
-            step = self.controller.step(confirmed, feats)
+            seg, confirmed, feats, caption, step = self._step_frame(i, frame)
             if showrunner is not None:
                 showrunner.observe(feats, self.registry, i)
             shown = (recap_ev if recap_ev is not None and i < cfg.drama.recap_frames

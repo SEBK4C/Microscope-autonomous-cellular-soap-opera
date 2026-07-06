@@ -46,7 +46,8 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | `soapscope/drama/season.py` | `SeasonMemory` + `Showrunner`: cross-episode lore, "Previously on…" recap, cliffhanger | multi-season arcs |
 | `soapscope/stage/api.py` | `CNCStage` interface, `SimulatedStage`, JSON-lines protocol | `SerialStage` → real microcontroller |
 | `soapscope/stage/controller.py` | "director" star pick + rate-limited follow; `moving.py` pans a sensor across a larger slide (world-coord tracking) | closed-loop focus/zoom |
-| `soapscope/render/overlay.py` + `episode_page.py` | masks/names/trails/viewport/caption bar; mp4 + a self-contained HTML episode page | live web viewer |
+| `soapscope/render/overlay.py` + `episode_page.py` | masks/names/trails/viewport/caption bar; mp4 + a self-contained HTML episode page | — |
+| `soapscope/web/viewer.py` | live MJPEG stream + caption ticker (stdlib HTTP); `Pipeline.stream` | webcam source; SSE |
 | `soapscope/pipeline.py` | wires it all together | — |
 | `soapscope/metrics.py` | autoresearch `score` + MOTA / ID-switch (GT) | funniness metrics |
 | `soapscope/autoresearch/loop.py` | hill-climb over `PipelineConfig` | smarter proposers |
@@ -87,6 +88,7 @@ fixed synthetic benchmark (seed-locked) to be kept.
 pip install -e .                       # or: pip install -r requirements.txt
 python -m soapscope.cli demo           # → out/episode.gif + transcript + metrics
 python -m soapscope.cli experiment --rounds 12 --journal AUTORESEARCH_JOURNAL.md
+python -m soapscope.cli serve          # live web viewer at http://127.0.0.1:8000
 python -m soapscope.cli protocol       # CNC microcontroller wire protocol
 python -m pytest -q
 ```

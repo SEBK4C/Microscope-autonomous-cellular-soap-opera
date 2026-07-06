@@ -16,19 +16,15 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Live web viewer.** A near-real-time dashboard: stream the annotated frames
-   (MJPEG / SSE) + a live caption ticker + the slide minimap to a browser page,
-   so an episode can be watched *as it runs* (and later, from a webcam). Verify
-   by serving the synthetic pipeline and screenshotting the browser.
-2. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+1. **Adaptive by default?** auto+adaptive beat the dark-field default on the
    synthetic bench (0.96 vs 0.93); consider making adaptive the default once
    validated on more real clips. *Metric:* synthetic score; real-clip frag.
-3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+2. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-4. **TTS narrator** (optional): speak the caption bar with an announcer voice.
-5. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
+3. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+4. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
    temporal-mode background compensation so the moving crop can use motion
    segmentation; real-video digital-pan follow.
 
@@ -626,3 +622,39 @@ it runs) is genuinely separate work — split out as the new backlog #1.
 
 **Next:** backlog #1 — a live web viewer (stream annotated frames + a caption
 ticker to a browser, near-real-time).
+
+---
+
+## 2026-07-06 — Iteration 12: live web viewer (watch it stream)
+
+**Picked:** backlog #1. Watch an episode *as it runs* in a browser.
+
+**Built (Python standard library only — no web framework):**
+
+- **Refactor** — pulled the per-frame compute into `Pipeline._step_frame` and
+  added `Pipeline.stream(frames)`, a generator that yields each annotated frame
+  as it's produced. `run` now calls `_step_frame` too, so batch and live share
+  one code path (verified: `run` score unchanged at 0.911).
+- **`web/viewer.py`** — a background producer thread runs endless episodes and
+  pushes the latest JPEG + caption into a thread-safe `LiveShow`; a stdlib
+  `ThreadingHTTPServer` serves `/` (dashboard), `/stream.mjpg` (multipart MJPEG
+  — the live video), and `/state` (JSON caption/cast/episode for the ticker).
+  Broadcast-styled dashboard (pulsing "● LIVE", the stream framed as a screen, a
+  live caption bar, stat chips) — matches the episode-page aesthetic.
+- **`soapscope serve --port …`**; 3 new tests (dashboard HTML, `LiveShow`, a real
+  server-routing integration test). **70 green.**
+
+**Verified live, end to end:** started the server, confirmed `/state` returns the
+current caption (`"…Dmitri Pseudopod pursues Ophelia Diatomsky…"`, cast 9,
+episode 1) and `/stream.mjpg` returns multipart JPEG, then **screenshotted the
+running dashboard in headless Chromium** (`docs/live_viewer.png`): the MJPEG feed
+shows the annotated slide (★ star, CNC viewport, named cast) with the caption
+ticker updating below it. It genuinely streams.
+
+**What worked:** MJPEG in a plain `<img>` needs zero JS for the video, and the
+`_step_frame` refactor meant the live path reuses the exact batch pipeline.
+**Design detail:** swapping the synthetic feed for a webcam source streams real
+microscopy through the same server unchanged.
+
+**Next:** backlog #1 — validate making auto+adaptive the default segmentation
+(it beat the dark-field default 0.96 vs 0.93 on the bench).

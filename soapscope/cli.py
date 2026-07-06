@@ -211,6 +211,16 @@ def cmd_protocol(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    from .web.viewer import serve
+    cfg = PipelineConfig()
+    cfg.n_frames = args.frames
+    cfg.render.fps = args.fps
+    cfg.drama.backend = args.narrator
+    serve(cfg, host=args.host, port=args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="soapscope",
                                 description="Autonomous cellular soap opera.")
@@ -292,6 +302,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("protocol", help="print the CNC microcontroller protocol")
     pr.set_defaults(func=cmd_protocol)
+
+    sv = sub.add_parser("serve", help="live web viewer — watch an episode stream")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8000)
+    sv.add_argument("--fps", type=int, default=12)
+    sv.add_argument("--frames", type=int, default=240)
+    sv.add_argument("--narrator", choices=["template", "llm", "vlm"], default="template")
+    sv.set_defaults(func=cmd_serve)
     return p
 
 
