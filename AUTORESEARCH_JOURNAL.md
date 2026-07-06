@@ -16,20 +16,17 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Season memory.** Persist character bios + relationships to disk across
-   episodes; a "Previously, on As the Slide Turns…" recap at the start and an
-   end-of-episode cliffhanger. Pure-python, directly enriches the soap opera.
-2. **Real video output.** mp4 via `imageio-ffmpeg` (installed); optional live web
+1. **Real video output.** mp4 via `imageio-ffmpeg` (installed); optional live web
    viewer that streams annotated frames + captions (near-real-time from webcam).
-3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+2. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-4. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+3. **Adaptive by default?** auto+adaptive beat the dark-field default on the
    synthetic bench (0.96 vs 0.93); consider making adaptive the default once
    validated on more real clips. *Metric:* synthetic score; real-clip frag.
-5. **TTS narrator** (optional): speak the caption bar with an announcer voice.
-6. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
+4. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+5. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
    temporal-mode background compensation so the moving crop can use motion
    segmentation; real-video digital-pan follow.
 
@@ -546,3 +543,45 @@ property of the shapes, logged so nobody force-enables it by default.
 
 **Next:** backlog #1 — season memory (persistent character bios, a "Previously,
 on…" recap, and an end-of-episode cliffhanger).
+
+---
+
+## 2026-07-06 — Iteration 10: season memory (a serialized soap opera)
+
+**Picked:** backlog #1. Turn one-off episodes into a serialized show with a
+memory: recurring cast, a "Previously, on…" recap, and a cliffhanger.
+
+**Built (pure python, no models):**
+
+- **`drama/season.py`** — `SeasonMemory` persists the show's lore to JSON
+  (per-character bios, cumulative feuds/romances, births/exits, notable events);
+  `Showrunner` observes the beats each frame, writes the lore, and generates the
+  **recap** (from prior episodes' top events) and the **cliffhanger** (from this
+  episode's hottest thread). No captioner import → no cycle; returns plain
+  strings the pipeline wraps into caption cards.
+- **Pipeline integration** — with `season_path` set, `run()` shows the recap on
+  the opening frames, records events as it goes, appends "NEXT TIME…"
+  cliffhanger cards at the end, and persists the season. `demo --season <file>`.
+- 6 new tests (persist/reload, recap-none-on-ep1, recap-references-prior,
+  cliffhanger, ordinals, pipeline recap). **63 green.**
+
+**Verified across 3 episodes (same seed → recurring cast):**
+
+> **Ep 1** cliff: "NEXT TIME: will Duchess Blaine Paramecium and Duchess Ophelia
+> Diatomsky finally admit their chemistry (rating 3)?"
+> **Ep 2** recap: "Previously…: the feud between Ophelia Diatomsky and Dmitri
+> Euglenova reached its 3rd act; Ophelia and Blaine grew closer — chemistry 3."
+> **Ep 3** cliff: "will the feud between Ophelia and Dmitri (now 9 acts deep)
+> ever end?"
+
+The relationships **accumulate across episodes** (chemistry 3→7→…, a feud that
+deepens 3rd→5th→9 acts) — a genuinely serialized story. `season.json` after 3
+episodes: 7 recurring cast, 15 lore events. Recap card: `docs/season_demo.png`.
+
+**What worked:** keying lore by character *name* (which recurs when the drama
+seed is fixed) gives a recurring cast for free; the escalation reads like a real
+soap. **Nit fixed mid-iteration:** naive ordinal ("3th") → proper `_ordinal`
+("3rd").
+
+**Next:** backlog #1 — real video output (mp4 via imageio-ffmpeg) so episodes are
+shareable beyond GIFs.

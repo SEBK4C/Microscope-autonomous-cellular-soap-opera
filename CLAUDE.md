@@ -43,6 +43,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | `soapscope/vision/features.py` | trajectories → dramatic *beats* | richer interaction model |
 | `soapscope/drama/characters.py` | persistent names + soap archetypes | — |
 | `soapscope/drama/captioner.py` | `TemplateCaptioner` (instant) + `LLMCaptioner` (local LLM) + `VLMCaptioner` (BLIP-grounded, `vlm_backend.py`) | bigger VLM / two-stage |
+| `soapscope/drama/season.py` | `SeasonMemory` + `Showrunner`: cross-episode lore, "Previously on…" recap, cliffhanger | multi-season arcs |
 | `soapscope/stage/api.py` | `CNCStage` interface, `SimulatedStage`, JSON-lines protocol | `SerialStage` → real microcontroller |
 | `soapscope/stage/controller.py` | "director" star pick + rate-limited follow; `moving.py` pans a sensor across a larger slide (world-coord tracking) | closed-loop focus/zoom |
 | `soapscope/render/overlay.py` | masks, names, trails, CNC viewport, caption bar | mp4 output, live web viewer |

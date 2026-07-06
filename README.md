@@ -156,6 +156,23 @@ BLIP is fast (~0.6 s/describe on CPU) and grounded, unlike a tiny instruct-VLM
 which is ~60× slower and hallucinates on abstract blobs (measured — see the
 journal). `pip install -e .[vlm]`, then `demo --narrator vlm`.
 
+## A serialized show (season memory)
+
+![Previously, on As the Slide Turns](docs/season_demo.png)
+
+Run episodes with a shared season file and the show remembers itself:
+
+```bash
+python -m soapscope.cli demo --season out/season.json   # run this repeatedly
+```
+
+Each new episode opens with a **"Previously, on As the Slide Turns…"** recap of
+the biggest prior moments and closes with a **cliffhanger**. Feuds and romances
+**accumulate across episodes** (a chemistry rating that climbs 3 → 7 → …, a feud
+that deepens from its "3rd act" to "9 acts deep"), and — because the cast is
+seeded — the same characters recur. It's a genuinely serialized soap opera:
+`season.json` holds the whole show's lore.
+
 ## The CNC stage as an API
 
 The pipeline only ever talks to the abstract `CNCStage` interface. A real

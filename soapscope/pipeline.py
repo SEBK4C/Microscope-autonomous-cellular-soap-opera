@@ -68,6 +68,18 @@ class Pipeline:
         track_lengths: dict = {}
         gts: List[Optional[object]] = []
 
+        showrunner, recap_ev, last = None, None, None
+        if cfg.drama.season_path:
+            from .drama.season import SeasonMemory, Showrunner
+            showrunner = Showrunner(SeasonMemory(cfg.drama.season_path),
+                                    seed=cfg.drama.seed,
+                                    observe_every=cfg.drama.caption_every)
+            recap = showrunner.recap()
+            if recap:
+                recap_ev = CaptionEvent(0, recap,
+                                        ["📺 PREVIOUSLY, on As the Slide Turns…", recap],
+                                        "RECAP", [])
+
         t0 = time.perf_counter()
         for i, item in enumerate(frames):
             if isinstance(item, tuple):
@@ -87,6 +99,10 @@ class Pipeline:
             caption = self.captioner.update(i, feats, self.registry,
                                             frame=frame, tracks=confirmed)
             step = self.controller.step(confirmed, feats)
+            if showrunner is not None:
+                showrunner.observe(feats, self.registry, i)
+            shown = (recap_ev if recap_ev is not None and i < cfg.drama.recap_frames
+                     else caption)
 
             for t in confirmed:
                 track_lengths[t.id] = track_lengths.get(t.id, 0) + 1
@@ -99,13 +115,26 @@ class Pipeline:
             records.append(FrameRecord(
                 frame_idx=i, n_detections=len(seg.detections),
                 n_tracks=len(confirmed), star_id=step.star_id,
-                caption=caption.headline if caption else "", stage_cmd=cmd_dict))
+                caption=shown.headline if shown else "", stage_cmd=cmd_dict))
 
             if collect_frames and cfg.render.enabled:
                 annotated.append(render_frame(
-                    frame, seg, confirmed, self.registry, caption, step,
-                    cfg.render, i))
+                    frame, seg, confirmed, self.registry, shown, step, cfg.render, i))
+            last = (frame, seg, confirmed, step)
         elapsed = time.perf_counter() - t0
+
+        cliff_ev = None
+        if showrunner is not None:
+            cliff = showrunner.finish()
+            n = len(records)
+            cliff_ev = CaptionEvent(n, cliff,
+                                    ["📺 NEXT TIME, on As the Slide Turns…", cliff],
+                                    "CLIFFHANGER", [])
+            if collect_frames and cfg.render.enabled and last is not None:
+                lf, lseg, ltr, lstep = last
+                for k in range(cfg.drama.cliffhanger_frames):
+                    annotated.append(render_frame(lf, lseg, ltr, self.registry,
+                                                  cliff_ev, lstep, cfg.render, n + k))
 
         metrics = compute_metrics(
             n_frames=len(records), elapsed_s=elapsed,
@@ -114,8 +143,11 @@ class Pipeline:
             caption_headlines=[e.headline for e in self.captioner_transcript()],
             caption_kinds=[e.kind for e in self.captioner_transcript()],
         )
+        transcript = (([recap_ev] if recap_ev else [])
+                      + self.captioner_transcript()
+                      + ([cliff_ev] if cliff_ev else []))
         return PipelineResult(
-            frames=annotated, transcript=self.captioner_transcript(),
+            frames=annotated, transcript=transcript,
             records=records, stage_commands=stage_cmds, metrics=metrics,
             config=cfg,
             segmenter_polarity=getattr(self.segmenter, "last_polarity", None))

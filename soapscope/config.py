@@ -79,6 +79,10 @@ class DramaConfig:
     # --- vision-language narrator (backend="vlm"): grounds captions in pixels ---
     vlm_model: str = "Salesforce/blip-image-captioning-base"  # fast, grounded CPU captioner
     vlm_max_tokens: int = 40
+    # --- season memory: serialized-show lore across episodes ---
+    season_path: str = ""        # JSON file; empty = disabled (no recap/cliffhanger/persistence)
+    recap_frames: int = 12       # show the "Previously on…" recap for this many opening frames
+    cliffhanger_frames: int = 10  # append this many "Next time…" cliffhanger cards at the end
 
 
 @dataclass

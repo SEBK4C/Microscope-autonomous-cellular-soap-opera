@@ -43,6 +43,7 @@ def cmd_demo(args) -> int:
     cfg.stage.enabled = not args.no_stage
     cfg.drama.backend = args.narrator
     cfg.drama.llm_model = args.llm_model
+    cfg.drama.season_path = args.season
     cfg.world.style = args.style
     cfg.segment.polarity = args.polarity
     # Bright-field footage segments best with adaptive local thresholding.
@@ -190,6 +191,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "(~2.4 s/caption); vlm = BLIP-grounded, mentions appearance "
                         "(~3 s/caption). llm/vlm need .[llm]/.[vlm]")
     d.add_argument("--llm-model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    d.add_argument("--season", default="",
+                   help="season-memory JSON file: recurring lore, a 'Previously on…' "
+                        "recap and a cliffhanger across episodes (run repeatedly)")
     d.add_argument("--style", choices=["darkfield", "brightfield"], default="darkfield",
                    help="darkfield = bright microbes/dark bg; brightfield = dark microbes/light bg")
     d.add_argument("--polarity", choices=["bright", "dark", "auto"], default="auto")
