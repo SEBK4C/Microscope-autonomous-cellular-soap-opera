@@ -128,8 +128,10 @@ def cmd_run(args) -> int:
         cfg.segment.sam_backend = args.sam_backend
         cfg.segment.sam_model = args.sam_model
         cfg.segment.sam_imgsz = args.sam_imgsz
-        print("[run] NOTE: SAM on CPU is far from real-time (~0.03 fps); "
-              "use a GPU, or the default classical backend for speed.")
+        note = ("FastSAM is near-real-time on CPU (~11 fps @ imgsz 384)"
+                if str(args.sam_backend) in ("auto", "fastsam")
+                else "MobileSAM/SAM everything-mode on CPU is ~0.03 fps (use a GPU)")
+        print(f"[run] NOTE: {note}. Weights auto-fetch from HuggingFace into models/.")
     else:
         cfg.segment.backend = "classical"
         cfg.segment.polarity = args.polarity  # real clips: auto-detect polarity

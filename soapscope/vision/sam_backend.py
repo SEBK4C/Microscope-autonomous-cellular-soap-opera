@@ -11,9 +11,64 @@ and raises a clear, actionable error if none is available.
 
 from __future__ import annotations
 
-from typing import List
+import os
+from typing import List, Optional
 
 import numpy as np
+
+# Known SAM-family weights and where to pull them on HuggingFace. The agent proxy
+# allows HF but blocks GitHub release assets (403), which is exactly where
+# ultralytics tries to auto-download — so a bare "FastSAM-s.pt" fetch fails. We
+# resolve to a local file in models/ first, then fetch from HF into models/.
+_HF_WEIGHTS = {
+    "fastsam-s.pt": [("Uminosachi/FastSAM", "FastSAM-s.pt"),
+                     ("mkshing/FastSAM", "FastSAM-s.pt")],
+    "fastsam-x.pt": [("Uminosachi/FastSAM", "FastSAM-x.pt"),
+                     ("mkshing/FastSAM", "FastSAM-x.pt")],
+    "mobile_sam.pt": [("dhkim2810/MobileSAM", "mobile_sam.pt"),
+                      ("Uminosachi/MobileSAM", "mobile_sam.pt")],
+}
+_MODELS_DIR = "models"
+_MIN_WEIGHT_BYTES = 100_000   # reject error-page stubs (e.g. the 403 JSON blob)
+
+
+def resolve_weight(name: str) -> str:
+    """Turn a bare weight name into a real local path, fetching from HF if needed.
+
+    ultralytics would auto-download from GitHub releases (proxy-blocked, 403), so
+    we (1) use ``name`` if it already points at a real file, (2) look in
+    ``models/``, (3) fetch from HuggingFace into ``models/``. Falls through to the
+    original name if all else fails (lets ultralytics raise its own error)."""
+    if os.path.isfile(name) and os.path.getsize(name) >= _MIN_WEIGHT_BYTES:
+        return name
+    base = os.path.basename(name)
+    local = os.path.join(_MODELS_DIR, base)
+    if os.path.isfile(local) and os.path.getsize(local) >= _MIN_WEIGHT_BYTES:
+        return local
+    fetched = _fetch_from_hf(base)
+    return fetched or name
+
+
+def _fetch_from_hf(basename: str) -> Optional[str]:
+    repos = _HF_WEIGHTS.get(basename.lower())
+    if not repos:
+        return None
+    try:
+        from huggingface_hub import hf_hub_download
+    except Exception:
+        return None
+    os.makedirs(_MODELS_DIR, exist_ok=True)
+    dest = os.path.join(_MODELS_DIR, basename)
+    for repo_id, filename in repos:
+        try:
+            path = hf_hub_download(repo_id=repo_id, filename=filename)
+            if os.path.getsize(path) >= _MIN_WEIGHT_BYTES:
+                import shutil
+                shutil.copy(path, dest)
+                return dest
+        except Exception:
+            continue
+    return None
 
 
 class SamBackend:
@@ -56,13 +111,13 @@ class UltralyticsBackend(SamBackend):
             from ultralytics import FastSAM
             if not str(model_name).lower().startswith("fastsam"):
                 model_name = "FastSAM-s.pt"
-            self.model = FastSAM(model_name)
+            self.model = FastSAM(resolve_weight(model_name))
             self._everything = True
         else:
             from ultralytics import SAM
             if kind == "mobile_sam" and "mobile" not in str(model_name).lower():
                 model_name = "mobile_sam.pt"
-            self.model = SAM(model_name)
+            self.model = SAM(resolve_weight(model_name))
             self._everything = False
 
     def generate(self, frame_rgb: np.ndarray) -> List[np.ndarray]:
@@ -88,7 +143,7 @@ class SegmentAnythingBackend(SamBackend):
         from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
         spec = cfg.sam_model
         arch, ckpt = spec.split(":", 1) if ":" in spec else ("vit_b", spec)
-        sam = sam_model_registry[arch](checkpoint=ckpt)
+        sam = sam_model_registry[arch](checkpoint=resolve_weight(ckpt))
         sam.to("cpu")
         self.amg = SamAutomaticMaskGenerator(sam, points_per_side=12)
 

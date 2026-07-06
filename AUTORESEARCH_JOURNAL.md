@@ -16,13 +16,14 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
-   MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
-   true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
-   an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-2. **Moving-stage residuals** (from iter 7; tighter centering done in iter 14):
+1. **Moving-stage residuals** (from iter 7; tighter centering done in iter 14):
    temporal-mode background compensation so the moving crop can use motion
-   segmentation; real-video digital-pan follow. *Metric:* star_offset; recall.
+   segmentation; real-video digital-pan follow; try the now-fast FastSAM backend
+   on the moving crop. *Metric:* star_offset; recall.
+2. **SAM2 video propagation** (FastSAM CPU speed done, iter 17): a SAM2 video
+   predictor for true mask *propagation* across frames (real tracking, not
+   per-frame segmentation); a GPU path for the heavier SAM variants. Still
+   GPU/availability-gated. *Metric:* fps; id-switches.
 3. **TTS narrator** (optional): speak the caption bar with an announcer voice.
 
 *Done — coherence (iter 15–16): 36 %→91 % protagonist-match. The ~9 % residual
@@ -869,3 +870,66 @@ tension once you commit to the shot — a followed star is *drama-picked*, so it
 almost always has something to say; you only synthesise in the rare quiet gap.
 
 **Next:** backlog #1 — SAM speed / SAM2 video propagation (GPU/HF-weights gated).
+
+---
+
+## 2026-07-06 — Iteration 17: FastSAM actually runs — SAM at ~11 fps on CPU
+
+**Picked:** backlog #1, the brief's marquee — "SAM3 or an equivalent SOTA model,
+locally, near real-time." I'd deferred it twice as "GPU/weights-blocked." Turns
+out the block was narrower than assumed, and mostly a *wiring* bug.
+
+**Found the real problem.** `models/` already held a real 40 MB `mobile_sam.pt`,
+but `FastSAM-s.pt` was **195 bytes** — the proxy's GitHub-403 JSON saved as a
+"checkpoint." And the backend passed *bare* names (`"FastSAM-s.pt"`) to
+ultralytics, which auto-downloads from **GitHub releases (403-blocked)** — so it
+never used the real local weight and always failed. Two things to fix: get real
+FastSAM weights, and make the backend *find* them.
+
+**Got real weights from HuggingFace** (allowed; GitHub isn't). Searched the hub,
+found `Uminosachi/FastSAM` / `mkshing/FastSAM` carry `FastSAM-s.pt` + `-x.pt`,
+pulled `FastSAM-s.pt` (23 MB, a valid torch zip) into `models/`.
+
+**Fixed weight resolution** (`sam_backend.resolve_weight`): use the name if it's
+already a real file, else look in `models/`, else fetch from HF into `models/`
+(size-guarded, so a 195-byte error stub is rejected). Wired it into every
+ultralytics/SAM constructor. Added `scripts/fetch_sam_weights.py` (reuses the
+same HF map) so it's reproducible, and stopped the `run` CLI from printing the
+stale "SAM is ~0.03 fps" scare.
+
+**Then measured — the headline: FastSAM is fast.** Raw inference on a 360×540
+synthetic frame, CPU:
+
+| model / mode | ms/frame | fps |
+|--------------|---------|-----|
+| MobileSAM (everything = dense-prompt AMG) | 31 600 | **0.03** |
+| FastSAM-s @ imgsz 512 | 104 | 9.6 |
+| FastSAM-s @ imgsz 384 | 70 | **14.4** |
+| FastSAM-s @ imgsz 256 | 44 | 22.8 |
+
+FastSAM is a *one-pass* YOLOv8-seg "segment everything" — no dense prompt grid —
+so it's **~500× faster** than SAM/MobileSAM AMG. Full pipeline (segment → track →
+drama → stage → metrics), seed 7, render off:
+
+| backend | fps | recall | score |
+|---------|-----|--------|-------|
+| classical (default) | 27.3 | 0.95 | **0.961** |
+| FastSAM @ 384 | **11.5** | **0.96** | 0.886 |
+| FastSAM @ 256 | 14.6 | 0.93 | 0.902 |
+
+**FastSAM matches classical on recall** and runs **near-real-time on a laptop CPU,
+no GPU** — the brief's marquee claim, delivered and measured. It scores a touch
+below classical (the `score` formula rewards the classical path's higher fps and
+tighter frag), so classical stays the default; SAM is now a genuinely usable
+option instead of a 0.03-fps curiosity. **70 green.** Proof: `docs/sam_demo.png`
+(FastSAM masks → named cast → CNC crosshair on the star, who's also the caption's
+protagonist — coherence from iter 16 riding along).
+
+**What worked:** treating "it's blocked" as a hypothesis to test, not a fact —
+the actual blocker was a bare-name download path + a bad file, both fixable in an
+afternoon. **What it taught:** MobileSAM/SAM "everything" mode is slow *because of
+the AMG prompt grid*, not the backbone; the fast lane was always FastSAM's single
+forward pass.
+
+**Next:** backlog #1 — moving-stage residuals (now with a fast SAM to try on the
+crop).
