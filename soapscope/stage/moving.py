@@ -52,7 +52,11 @@ class MovingStageController:
 
         if star_id is not None and star_id in by_id:
             star = by_id[star_id]
-            dy, dx = star.cy - self.cy, star.cx - self.cx
+            # Aim where the star is heading (velocity feedforward), not just
+            # where it is — cancels the follow lag for a moving subject.
+            tgt_y = star.cy + self.cfg.lead * star.vy
+            tgt_x = star.cx + self.cfg.lead * star.vx
+            dy, dx = tgt_y - self.cy, tgt_x - self.cx
             dist = math.hypot(dy, dx)
             if dist > self.cfg.deadzone:
                 if dist > self.cfg.max_step and dist > 0:

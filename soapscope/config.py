@@ -89,9 +89,10 @@ class DramaConfig:
 class StageConfig:
     enabled: bool = True
     follow: str = "director"     # director (most dramatic) | none | id:<n>
-    deadzone: float = 40.0       # don't move the stage until the star drifts this far off-centre
-    max_step: float = 24.0       # max stage move per frame (px), models CNC feed-rate limit
-    hysteresis: float = 1.4      # a challenger must be this much more dramatic to steal the camera
+    deadzone: float = 20.0       # don't move the stage until the star drifts this far off-centre
+    max_step: float = 48.0       # max stage move per frame (px), models CNC feed-rate limit
+    hysteresis: float = 3.0      # a challenger must be this much more dramatic to steal the camera
+    lead: float = 4.0            # aim this many frames ahead along the star's velocity (feedforward)
 
 
 @dataclass

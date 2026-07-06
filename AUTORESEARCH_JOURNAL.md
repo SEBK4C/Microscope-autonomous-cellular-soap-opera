@@ -16,14 +16,17 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
-   temporal-mode background compensation so the moving crop can use motion
-   segmentation; real-video digital-pan follow. *Metric:* star_offset.
-2. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+1. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-3. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+2. **Moving-stage residuals** (from iter 7; tighter centering done in iter 14):
+   temporal-mode background compensation so the moving crop can use motion
+   segmentation; real-video digital-pan follow. *Metric:* star_offset; recall.
+3. **Star/narrator coherence:** the stage sometimes crosshairs one microbe while
+   the caption stars another (different selection paths). Share the pick or name
+   the crosshaired one. *Metric:* fraction of frames where star_id == narrated.
+4. **TTS narrator** (optional): speak the caption bar with an announcer voice.
 
 ---
 
@@ -697,3 +700,50 @@ change taught:** changing a default is a great fuzzer — it exposed the
 small-frame polarity bug that idealized 540 px frames never hit.
 
 **Next:** backlog #1 — moving-stage polish (tighter star centering).
+
+---
+
+## 2026-07-06 — Iteration 14: moving-stage polish — velocity-lead centering
+
+**Picked:** backlog #1 — tighter star centering on the moving crop (its stated
+metric was `star_offset`). The iter-7 stage followed loosely because it only
+ever aimed at where the star *was*; on a drifting subject the constant follow
+lag left the star sitting ~80–90 px off the sensor centre.
+
+**Change (one idea, three supporting knobs):** aim where the star is *heading*.
+Added `StageConfig.lead` — feedforward that targets `star.c + lead·star.v`
+(velocity extrapolation) instead of the raw centroid, cancelling the follow lag.
+`soapscope/stage/moving.py` now steps toward the lead point. To let the stage
+actually *reach* that point I also opened three defaults: `deadzone 40→20` (start
+correcting sooner), `max_step 24→48` (CNC feed-rate can catch up), `hysteresis
+1.4→3.0` (stickier star so the tighter loop doesn't twitch between microbes).
+
+**Measured** (moving crop, `world_scale=1.8`, 110 frames, averaged over 4 seeds
+5/8/11/17), old defaults vs new, *identical worlds*:
+
+| defaults | star_offset | in-frame | stage_travel |
+|----------|-------------|----------|--------------|
+| old (dz40, step24, hyst1.4, lead0) | 82.9 ± 12.1 px | 100 % | 1259 px |
+| **new (dz20, step48, hyst3.0, lead4)** | **60.0 ± 9.3 px** | **100 %** | 1579 px |
+
+**−28 % mean offset and tighter variance** (±12.1→±9.3), the star stays 100 %
+in-frame either way, at a cost of **+25 % stage travel** — the honest trade: the
+lead + lower deadzone make the stage work harder to stay glued to the subject
+(still ~14 px/frame average, well under the 48 px/frame feed-rate cap, so
+physically fine for a real CNC). Adopted the new values as `StageConfig`
+defaults. **70 green** (the non-moving `test_stage_follows_a_star` is safe — a
+lower deadzone only issues *more* moves).
+
+**Verified visually:** rendered `docs/moving_demo.png` from a live moving-stage
+episode — the ★ star wears a crosshair reticle sitting on its centroid, and the
+minimap shows the sensor window panned off-centre across the larger slide while
+named cast (Amoebini, Paramecium, Diatomsky, Vacuole…) drift through frame.
+
+**What worked:** feedforward is the right primitive for a follow loop — chasing
+position alone can't beat a moving target, but a one-line velocity extrapolation
+can. **What the proof taught:** the crosshair landed on `Amoebini` while the
+caption starred `Sir Sterling Vacuole` — the stage and narrator pick stars by
+different paths. Filed as backlog #3 (star/narrator coherence).
+
+**Next:** backlog #1 — SAM speed / SAM2 video propagation (blocked on reachable
+HF weights + a GPU path; today ~0.03 fps CPU).
