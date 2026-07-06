@@ -57,10 +57,14 @@ class TrackConfig:
 
 @dataclass
 class DramaConfig:
-    backend: str = "template"    # template | llm  (llm swapped in later)
+    backend: str = "template"    # template | llm
     caption_every: int = 6       # emit a fresh narrator line every N frames
     seed: int = 7
     spice: float = 1.0           # 0..2, how melodramatic the templates get
+    # --- local LLM narrator (backend="llm") ---
+    llm_model: str = "Qwen/Qwen2.5-0.5B-Instruct"  # small HF instruct model (CPU-runnable)
+    llm_max_tokens: int = 48     # cap generation length (latency ∝ tokens)
+    llm_temperature: float = 0.9 # creativity of the narration
 
 
 @dataclass

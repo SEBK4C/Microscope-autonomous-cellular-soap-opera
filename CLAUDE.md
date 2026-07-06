@@ -42,7 +42,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | `soapscope/vision/track.py` | greedy NN tracker, stable ids, enter/exit events | Kalman/Hungarian, SAM3 video propagation |
 | `soapscope/vision/features.py` | trajectories → dramatic *beats* | richer interaction model |
 | `soapscope/drama/characters.py` | persistent names + soap archetypes | — |
-| `soapscope/drama/captioner.py` | `TemplateCaptioner` (offline, funny, has memory) | `LLMCaptioner` (local LLM/VLM) |
+| `soapscope/drama/captioner.py` | `TemplateCaptioner` (instant, offline) + `LLMCaptioner` (local HF LLM via `llm_backend.py`) | grounded VLM captions |
 | `soapscope/stage/api.py` | `CNCStage` interface, `SimulatedStage`, JSON-lines protocol | `SerialStage` → real microcontroller |
 | `soapscope/stage/controller.py` | "director" picks the star, rate-limited follow | closed-loop focus/zoom |
 | `soapscope/render/overlay.py` | masks, names, trails, CNC viewport, caption bar | mp4 output, live web viewer |

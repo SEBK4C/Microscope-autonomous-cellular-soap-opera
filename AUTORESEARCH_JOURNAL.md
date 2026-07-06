@@ -16,19 +16,17 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Local-LLM narrator.** Implement `LLMCaptioner` with a small HF model
-   (Qwen2.5-0.5B/1.5B via transformers or llama.cpp) — HF weight downloads work
-   here (GitHub releases are proxy-blocked). Soap-opera system prompt fed the
-   frame's beats + character memory; keep the template as fallback. Captions
-   fire every N frames so per-call latency is tolerable. *Metric:* variety + a
-   human spot-check; measure caption latency.
-2. **Temporal+spatial hybrid segmentation.** Motion mode splits large/slow
+1. **Temporal+spatial hybrid segmentation.** Motion mode splits large/slow
    objects into leading/trailing crescents and drops stationary ones. Blend the
    motion mask with the spatial (polarity) score, or morphologically close it,
    so bodies stay whole. *Metric:* frag on synthetic-temporal → ~1.0; real-clip
    meanlen holds.
-3. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
-   assignment; add a proper MOTA / ID-switch metric using GT. (Pairs with #2.)
+2. **Kalman + Hungarian tracking.** Constant-velocity Kalman predict + optimal
+   assignment; add a proper MOTA / ID-switch metric using GT. (Pairs with #1.)
+3. **VLM captioner.** Feed cropped microbe thumbnails to a small local
+   vision-language model (SmolVLM / moondream via transformers) so captions are
+   grounded in what the microbe actually looks like, not just the beat label.
+   Keep template + LLM as fallbacks. *Metric:* human spot-check; latency.
 4. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
@@ -266,3 +264,51 @@ everything-mode (faster) is backlog #4.
 
 **Next:** backlog #1 — the local-LLM narrator (small HF model), for genuinely
 generative soap-opera captions with the template as fallback.
+
+---
+
+## 2026-07-06 — Iteration 4: local-LLM narrator (real, measured)
+
+**Picked:** backlog #1 — swap the template captioner for a genuinely generative
+one while keeping the template as a safety net.
+
+**Built:**
+
+- **`LLMCaptioner`** (`drama/captioner.py`) — turns the frame's top *beat* +
+  character names/archetypes + a rolling memory of recent lines & run-ins into a
+  soap-opera prompt, calls a small local LLM, and cleans the output (strips
+  `Caption:` prefixes, hashtag spam, quotes, mid-sentence truncation). Any
+  failure (no transformers, download error, generation error) silently drops to
+  the template captioner, so the pipeline never breaks.
+- **`drama/llm_backend.py`** — lazy HF `transformers` loader (default
+  **Qwen2.5-0.5B-Instruct**), chat-templated, greedy-ish sampling with
+  `repetition_penalty` + `no_repeat_ngram_size`. `[llm]` extra = transformers +
+  accelerate.
+- **`demo --narrator llm`** (+ `--llm-model`); template stays the default. 5 new
+  tests (fallback, mock-model cleaning, cadence, `_clean`). **34 green.**
+
+**Verified END TO END:** installed transformers (5.13), downloaded
+Qwen2.5-0.5B-Instruct (~1 GB) from HuggingFace, and ran the full pipeline with
+the LLM narrator on the synthetic world. Sample output (`docs/llm_demo.png`):
+
+> "Did ya see them meet again next time she goes home with her husband for dinner?!"
+> "Madame D., your reflection reveals you're just a microbial amoeba looking down upon us!"
+> "Ugh, it feels like we're playing Dungeons and Dragons again!"
+
+Genuinely funnier and more varied than the templates (variety 1.0), on-theme,
+occasionally gloriously unhinged — very Gary Larson.
+
+**Latency (CPU, honest):** model load ~16 s (incl. download); **~2.4 s/caption**
+warm. Captions fire every `caption_every` frames (default 6), so a 42-frame clip
+made 6 LLM calls in ~26 s total. Far more practical than SAM's 29 s/*frame* — an
+LLM caption every ~0.5 s of video is usable for near-real-time; the template
+captioner (instant) remains the hard-real-time default.
+
+**Bug found & fixed:** the first version ticked *every* frame (it read the
+fallback template's `current`, which never updates, instead of its own) — so it
+made 30 LLM calls for 30 frames and looped on a repeated caption. Fixed the tick
+check to use the LLM captioner's own state; added `repetition_penalty`. Variety
+went 0.73 → 1.0 and cost dropped ~7×.
+
+**Next:** backlog #1 — temporal+spatial hybrid segmentation (fix the motion-mode
+crescent-splitting so bodies stay whole).

@@ -20,7 +20,8 @@ dependencies = [
 # FastSAM/MobileSAM/SAM via ultralytics (auto-downloads weights). On a GPU-less
 # box install CPU torch first: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 sam = ["ultralytics"]
-llm = ["llama-cpp-python"]              # local LLM captioning
+# Local LLM narrator via HF transformers (+ CPU torch, see the [sam] note above).
+llm = ["transformers", "accelerate"]
 video = ["imageio", "imageio-ffmpeg", "opencv-python"]  # real video I/O
 hardware = ["pyserial"]                # real CNC stage over serial
 dev = ["pytest"]

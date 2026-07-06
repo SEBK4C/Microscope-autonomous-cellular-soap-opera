@@ -41,6 +41,8 @@ def cmd_demo(args) -> int:
     cfg.drama.seed = args.seed
     cfg.drama.spice = args.spice
     cfg.stage.enabled = not args.no_stage
+    cfg.drama.backend = args.narrator
+    cfg.drama.llm_model = args.llm_model
     cfg.world.style = args.style
     cfg.segment.polarity = args.polarity
     # Bright-field footage segments best with adaptive local thresholding.
@@ -163,6 +165,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--frames", type=int, default=140)
     d.add_argument("--seed", type=int, default=7)
     d.add_argument("--spice", type=float, default=1.0)
+    d.add_argument("--narrator", choices=["template", "llm"], default="template",
+                   help="template = instant & offline; llm = small local model "
+                        "(needs .[llm]; ~2.4 s/caption on CPU)")
+    d.add_argument("--llm-model", default="Qwen/Qwen2.5-0.5B-Instruct")
     d.add_argument("--style", choices=["darkfield", "brightfield"], default="darkfield",
                    help="darkfield = bright microbes/dark bg; brightfield = dark microbes/light bg")
     d.add_argument("--polarity", choices=["bright", "dark", "auto"], default="auto")

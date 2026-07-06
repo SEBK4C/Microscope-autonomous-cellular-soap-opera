@@ -32,7 +32,7 @@ video → segment → track → features → drama → stage → render
 | **Video** | synthetic world + ground truth; PNG-frame folders | real microscopy clips, webcam |
 | **Segment** | classical numpy CC (polarity / adaptive / temporal) | **FastSAM / MobileSAM / SAM** (drop-in; see below) |
 | **Track** | greedy nearest-neighbour, stable IDs | Kalman + Hungarian, SAM3 video propagation |
-| **Drama** | offline template narrator with feud/romance memory | local **LLM / VLM** narrator |
+| **Drama** | offline template narrator with feud/romance memory | **local LLM narrator** (drop-in; see below) → VLM |
 | **Stage** | `SimulatedStage` + JSON-lines protocol | real **CNC over serial** |
 | **Render** | annotated GIF + transcript | mp4, live web viewer |
 
@@ -121,6 +121,27 @@ CNC stage are unchanged. **Reality check:** on CPU, MobileSAM is ~**0.03 fps**
 quality/offline (or GPU) option, and classical stays the near-real-time default.
 The pluggable design is the point: pick the backend that fits your hardware.
 
+## Local-LLM narrator
+
+By default the narration comes from an offline template engine (instant, funny,
+with feud/romance memory). For genuinely *generative* captions, swap in a small
+local LLM:
+
+```bash
+pip install -e .[llm]                         # transformers + accelerate (+ CPU torch)
+python -m soapscope.cli demo --narrator llm   # default model: Qwen2.5-0.5B-Instruct
+```
+
+![LLM narration](docs/llm_demo.png)
+
+The LLM turns each dramatic *beat* (a chase, a collision, a mitotic "birth")
+plus the characters' names and history into one Gary-Larson-style line — e.g.
+*"Did ya see them meet again next time she goes home with her husband for
+dinner?!"* It downloads from HuggingFace and runs on CPU at **~2.4 s/caption**
+(captions fire every few frames, so a short clip is seconds of narration). Any
+failure falls back to the template narrator, so the pipeline never breaks. The
+template stays the default for hard-real-time; the LLM is the quality option.
+
 ## The CNC stage as an API
 
 The pipeline only ever talks to the abstract `CNCStage` interface. A real
@@ -139,12 +160,13 @@ speed. A cron loop drives it every 15 minutes; results land in the journal.
 
 ## Status
 
-End-to-end and running on **real internet-sourced microscopy video**, not just
-the synthetic world. Baseline score ≈ 0.90 on the synthetic benchmark (94%
-recall, ~17 fps CPU); auto polarity + adaptive thresholding reaches ≈ 0.96 on
-bright-field. Real clips are watchable out of the box but still fragment into
-short tracks — de-fragmenting them is the current focus. Roadmap and experiment
-log: [`AUTORESEARCH_JOURNAL.md`](AUTORESEARCH_JOURNAL.md).
+End-to-end and running on **real internet-sourced microscopy video**. Segment
+with pure-numpy classical/temporal (~40–55 fps CPU) or **SAM / MobileSAM**;
+narrate with the offline template engine or a **local LLM** (Qwen2.5-0.5B).
+Synthetic benchmark ≈ 0.94 (94% recall); real clips are watchable out of the
+box. Everything heavy (SAM, LLM) is an optional drop-in behind a stable
+interface, so classical + template stay the near-real-time defaults. Roadmap and
+experiment log: [`AUTORESEARCH_JOURNAL.md`](AUTORESEARCH_JOURNAL.md).
 
 ## License
 

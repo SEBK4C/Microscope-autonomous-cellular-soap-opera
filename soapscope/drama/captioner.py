@@ -205,24 +205,138 @@ class TemplateCaptioner(Captioner):
         return ev
 
 
-class LLMCaptioner(Captioner):
-    """Placeholder for a local LLM/VLM captioner (Llama.cpp / a small VLM).
+LLM_SYSTEM = (
+    "You are the narrator of 'As the Slide Turns', a melodramatic daytime soap "
+    "opera about microbes on a microscope slide. Given a scene, write ONE short, "
+    "funny caption (max 18 words) in the style of a Gary Larson cartoon: witty, "
+    "deadpan, a little absurd. Output only the caption — no quotes, no preamble, "
+    "no emoji, no stage directions."
+)
 
-    Later iterations feed the beats (and optionally cropped microbe thumbnails)
-    to a local model with a soap-opera system prompt. Until wired up it defers
-    to the template captioner so the demo never breaks.
+SITUATIONS = {
+    "ENTER": "{A} ({arch_a}) drifts into view",
+    "EXIT": "{A} floats out of frame and is gone",
+    "DIVIDE": "{A} just split in two — {B} was born from it",
+    "CHASE": "{A} ({arch_a}) is chasing {B} across the slide",
+    "FLEE": "{A} is fleeing from {B} at speed",
+    "ENCOUNTER": "{A} and {B} collide face to face",
+    "SPEED_BURST": "{A} suddenly races off in a hurry",
+    "LINGER": "{A} sits perfectly still, brooding",
+    "WANDER": "{A} ({arch_a}) drifts aimlessly",
+}
+
+
+class LLMCaptioner(Captioner):
+    """Narrate with a small local LLM, falling back to templates if unavailable.
+
+    The heavy model is loaded lazily on the first caption tick; any failure
+    (missing transformers, download error, generation error) silently drops to
+    the template captioner, so the pipeline never breaks. It keeps a short
+    rolling memory of recent lines + character run-ins for story continuity.
     """
 
     def __init__(self, cfg: DramaConfig):
         self.cfg = cfg
-        self._fallback = TemplateCaptioner(cfg)
+        self._fallback = TemplateCaptioner(cfg)      # safety net + template flavour
+        self.transcript: List[CaptionEvent] = []
+        self.current: Optional[CaptionEvent] = None
+        self._llm = None
+        self._llm_tried = False
+        self._title_shown = False
+        self._recent: List[str] = []
+        self._history: Dict[Tuple[int, int], int] = {}
+        self.used_llm = 0
+        self.used_fallback = 0
 
-    @property
-    def transcript(self):
-        return self._fallback.transcript
+    # ------------------------------------------------------------ prompting
+    def _situation(self, beat: Beat, reg: CharacterRegistry) -> str:
+        fields = self._fallback._fields(beat, reg)
+        template = SITUATIONS.get(beat.kind, SITUATIONS["WANDER"])
+        try:
+            return template.format(**fields)
+        except (KeyError, IndexError):
+            return "something stirs on the slide"
 
-    def update(self, frame_idx, feats, reg):  # pragma: no cover
-        return self._fallback.update(frame_idx, feats, reg)
+    def _user_prompt(self, beat: Beat, reg: CharacterRegistry) -> str:
+        parts = [f"Scene: {self._situation(beat, reg)}."]
+        if len(beat.subjects) >= 2:
+            key = self._fallback._pair(beat.subjects[0], beat.subjects[1])
+            n = self._history.get(key, 0)
+            if n >= 2:
+                parts.append(f"(They have history — this is run-in #{n}.)")
+        if self._recent:
+            parts.append(f"Previously: {self._recent[-1]}")
+        parts.append("Caption:")
+        return " ".join(parts)
+
+    @staticmethod
+    def _clean(text: str) -> str:
+        line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+        for pre in ("Caption:", "CAPTION:", "caption:"):
+            if line.startswith(pre):
+                line = line[len(pre):].strip()
+        line = line.split("#")[0].strip()          # drop hashtag spam the small model loves
+        line = line.strip().strip('"').strip("'").strip()[:160]
+        # If the tail was cut off mid-sentence, trim back to the last full one.
+        if line and line[-1] not in ".!?":
+            ends = [i for i, c in enumerate(line) if c in ".!?"]
+            if ends and ends[-1] >= len(line) * 0.5:
+                line = line[:ends[-1] + 1]
+        return line
+
+    def _is_tick(self, frame_idx: int) -> bool:
+        # Uses THIS captioner's own state (not the fallback's, which never updates).
+        return self.current is None or frame_idx % max(1, self.cfg.caption_every) == 0
+
+    def _ensure_llm(self):
+        if not self._llm_tried:
+            self._llm_tried = True
+            try:
+                from .llm_backend import load_llm
+                self._llm = load_llm(self.cfg)
+            except Exception:
+                self._llm = None
+        return self._llm
+
+    # --------------------------------------------------------------- update
+    def update(self, frame_idx: int, feats: FrameFeatures,
+               reg: CharacterRegistry) -> CaptionEvent:
+        if not self._is_tick(frame_idx):
+            return self.current  # type: ignore[return-value]
+
+        beat = feats.top()
+        if beat is not None and len(beat.subjects) >= 2:
+            key = self._fallback._pair(beat.subjects[0], beat.subjects[1])
+            self._history[key] = self._history.get(key, 0) + 1
+
+        line = None
+        llm = self._ensure_llm()
+        if llm is not None and beat is not None:
+            try:
+                line = self._clean(llm.generate(LLM_SYSTEM, self._user_prompt(beat, reg)))
+            except Exception:
+                line = None
+
+        if line:
+            self.used_llm += 1
+        else:
+            self.used_fallback += 1
+            line = ("The pond is calm. Suspiciously calm." if beat is None
+                    else self._fallback._render_beat(beat, reg)[0])
+
+        lines = [line]
+        if not self._title_shown:
+            lines = ["🎬 AS THE SLIDE TURNS — today's episode:"] + lines
+            self._title_shown = True
+        ev = CaptionEvent(frame_idx=frame_idx, headline=lines[0], lines=lines,
+                          kind=(beat.kind if beat else "IDLE"),
+                          subjects=(beat.subjects if beat else []))
+        self.current = ev
+        self.transcript.append(ev)
+        self._recent.append(line)
+        if len(self._recent) > 3:
+            self._recent.pop(0)
+        return ev
 
 
 def make_captioner(cfg: DramaConfig) -> Captioner:
