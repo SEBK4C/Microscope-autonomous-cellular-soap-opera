@@ -102,6 +102,7 @@ def cmd_run(args) -> int:
         # De-fragmentation bundle for noisy real footage (AUTORESEARCH_JOURNAL #1).
         cfg.segment.temporal = args.temporal  # motion foreground erases static noise
         cfg.segment.hybrid = args.hybrid      # whole-body gating (best for CLEAN footage)
+        cfg.segment.watershed = args.watershed  # split touching round cells
         cfg.segment.open_iter = args.open     # despeckle the mask
         if args.temporal:                     # coast longer through fast motion
             cfg.track.max_missed = 12
@@ -225,6 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="temporal: keep whole bodies via spatial gating — best for "
                         "CLEAN footage; noisy compressed clips prefer pure motion")
     r.add_argument("--open", type=int, default=1, help="morphological opening iterations")
+    r.add_argument("--watershed", action=argparse.BooleanOptionalAction, default=False,
+                   help="split touching round cells (slower; over-splits elongated microbes)")
     r.add_argument("--min-area", type=int, default=45, help="min detection area (px)")
     r.add_argument("--stride", type=int, default=1, help="keep every Nth video frame")
     r.add_argument("--max-frames", type=int, default=240)

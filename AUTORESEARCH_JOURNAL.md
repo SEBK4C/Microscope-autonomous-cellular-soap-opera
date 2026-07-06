@@ -16,21 +16,20 @@ An experiment is *kept* only if it beats the current best.
 Pull the **top** item each loop. Re-order as you learn. Mark done by moving a
 line into a dated entry below.
 
-1. **Touching-microbe segmentation.** Distance-transform + watershed split so
-   two collided microbes don't merge into one track. *Metric:* fragmentation.
-2. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
+1. **Season memory.** Persist character bios + relationships to disk across
+   episodes; a "Previously, on As the Slide Turns…" recap at the start and an
+   end-of-episode cliffhanger. Pure-python, directly enriches the soap opera.
+2. **Real video output.** mp4 via `imageio-ffmpeg` (installed); optional live web
+   viewer that streams annotated frames + captions (near-real-time from webcam).
+3. **SAM speed / SAM2 video propagation.** FastSAM (everything-mode, faster than
    MobileSAM) once its weights are reachable via HF; SAM2 video predictor for
    true mask *propagation* (real tracking, not per-frame AMG); a GPU path with
    an honest fps. Today SAM works but is ~0.03 fps on CPU. *Metric:* fps; recall.
-3. **Real video output.** mp4 via `imageio-ffmpeg`; optional live web viewer
-   that streams annotated frames + captions (near-real-time from webcam).
-4. **Season memory.** Persist character bios + relationships to disk across
-   episodes; "Previously, on…" recaps and end-of-episode cliffhangers.
-5. **Adaptive by default?** auto+adaptive beat the dark-field default on the
+4. **Adaptive by default?** auto+adaptive beat the dark-field default on the
    synthetic bench (0.96 vs 0.93); consider making adaptive the default once
    validated on more real clips. *Metric:* synthetic score; real-clip frag.
-6. **TTS narrator** (optional): speak the caption bar with an announcer voice.
-7. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
+5. **TTS narrator** (optional): speak the caption bar with an announcer voice.
+6. **Moving-stage polish** (from iter 7): tighter centering (star_offset ~75px);
    temporal-mode background compensation so the moving crop can use motion
    segmentation; real-video digital-pan follow.
 
@@ -496,3 +495,54 @@ BLIP mostly reports colour; on real microscopy it should say more.
 
 **Next:** backlog #1 — touching-microbe segmentation (watershed split so two
 collided microbes don't merge into one track).
+
+---
+
+## 2026-07-06 — Iteration 9: touching-microbe watershed (works, but situational)
+
+**Picked:** backlog #1 — split touching microbes so a collision doesn't fuse two
+characters into one blob.
+
+**Built (pure numpy, no scipy):**
+
+- **`_distance_transform`** — distance-to-edge via iterative 3×3 erosion (blob
+  centres peak; necks between touching cells stay low).
+- **`watershed_split`** — per-component distance peaks → seed cores
+  (`dist ≥ seed_frac · component-peak`) → vectorised nearest-seed flood to
+  partition a shared blob along its neck. Returns `(labels, n)` like
+  `label_components`, so the rest of `segment()` is unchanged.
+- `SegmentConfig.watershed` + `run --watershed`; default **off**. 5 new tests.
+  **57 green.**
+
+**It is correct** (unit-verified): just-touching round discs (sep ≥ ~18 px) split
+into two, heavily-overlapping discs stay one (they genuinely are), and a single
+**elongated** microbe does **not** over-split.
+
+**But it does not help this benchmark — honest negative:**
+
+| synthetic collision scene | idsw | frag | fps |
+|---------------------------|------|------|-----|
+| no watershed | 28 | 1.29 | 18 |
+| watershed frac 0.5 | 26 | 1.29 | **6** |
+| watershed frac 0.6 | 38 | 1.35 | 6 |
+| watershed frac 0.7 | 53 | 1.29 | 6 |
+
+Two reasons: (1) our synthetic microbes are **elongated** (euglena, motion-
+stretched), and once rendered with wiggle/anti-aliasing their distance transforms
+grow spurious secondary peaks → **over-split** at higher `seed_frac` (idsw
+28→53). (2) The Kalman tracker (iter 6) already coasts through the brief merges a
+collision causes, so there's little for watershed to fix. And it's **3× slower**
+(a distance transform + region grow every frame). At the only safe setting
+(frac 0.5) it's neutral and slow.
+
+**Conclusion:** watershed is the right tool for **dense round-cell** footage
+(bacteria, yeast) but wrong for elongated protozoa — so it ships **opt-in**, off
+by default. Also learned: the default pre-threshold `blur=1` softens necks and
+suppresses splitting (use `blur=0` with `--watershed`).
+
+**What worked:** the marker + nearest-seed-flood split (no scipy) is correct and
+cheap per-blob. **What didn't:** it's not a win on elongated microbes — a real
+property of the shapes, logged so nobody force-enables it by default.
+
+**Next:** backlog #1 — season memory (persistent character bios, a "Previously,
+on…" recap, and an end-of-episode cliffhanger).

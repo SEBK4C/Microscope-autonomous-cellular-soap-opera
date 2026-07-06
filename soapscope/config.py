@@ -45,6 +45,9 @@ class SegmentConfig:
     hybrid: bool = False         # temporal: keep whole-body spatial score, gated by motion (no crescents)
     motion_gate: float = 0.12    # motion level that counts as "active" for the hybrid gate
     motion_dilate: int = 3       # dilate the motion gate this many px to cover whole bodies
+    watershed: bool = False      # split touching microbes via distance-transform markers (round cells)
+    watershed_seed_frac: float = 0.55  # seed core = dist >= frac * component peak (higher = split more)
+    watershed_max_dist: int = 24 # max distance-transform depth (~largest microbe radius, px)
     # --- SAM backend (used when backend in {sam2, sam3}) ---
     sam_backend: str = "auto"    # auto | fastsam | mobile_sam | ultralytics_sam | segment_anything
     sam_model: str = "FastSAM-s.pt"  # model name/path (ultralytics auto-downloads known names)

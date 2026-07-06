@@ -38,7 +38,7 @@ video → vision.segment → vision.track → vision.features → drama → stag
 | Module | Role | Swap-in later |
 |--------|------|---------------|
 | `soapscope/video/synthetic.py` | deterministic dark/bright-field world + ground truth | real clips via `video/io.load_video` / `load_frames_dir` |
-| `soapscope/vision/segment.py` | `ClassicalSegmenter` (numpy CC; polarity/adaptive/temporal/hybrid) + `SamSegmenter` (FastSAM/MobileSAM/SAM via `sam_backend.py`) | SAM2 video propagation; GPU |
+| `soapscope/vision/segment.py` | `ClassicalSegmenter` (numpy CC; polarity/adaptive/temporal/hybrid/watershed) + `SamSegmenter` (FastSAM/MobileSAM/SAM via `sam_backend.py`) | SAM2 video propagation; GPU |
 | `soapscope/vision/track.py` | Kalman + Hungarian tracker (`assign.py`), stable ids, enter/exit | SAM3 video propagation |
 | `soapscope/vision/features.py` | trajectories → dramatic *beats* | richer interaction model |
 | `soapscope/drama/characters.py` | persistent names + soap archetypes | — |

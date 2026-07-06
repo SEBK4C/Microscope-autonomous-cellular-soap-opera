@@ -85,6 +85,74 @@ def _binary_open(mask: np.ndarray, iters: int = 1) -> np.ndarray:
     return _binary_dilate(_binary_erode(mask, iters), iters)
 
 
+def _distance_transform(mask: np.ndarray, max_iters: int) -> np.ndarray:
+    """Approximate distance-to-edge via iterative erosion (Chebyshev-ish).
+
+    A foreground pixel's value = how many 3x3 erosions it survives, so blob
+    centres peak and thin necks between touching blobs stay low. Pure numpy;
+    cost scales with the largest microbe radius, not the frame.
+    """
+    dist = np.zeros(mask.shape, np.float32)
+    cur = mask
+    for _ in range(max(1, max_iters)):
+        cur = _binary_erode(cur, 1)
+        if not cur.any():
+            break
+        dist += cur
+    return dist
+
+
+def watershed_split(mask: np.ndarray, max_dist: int,
+                    seed_frac: float) -> "tuple[np.ndarray, int]":
+    """Split touching blobs with distance-transform markers + region growing.
+
+    1. distance transform → peaks mark blob centres;
+    2. seeds = per-component cores (dist ≥ seed_frac · component-peak), so two
+       touching microbes give two seeds but a single blob gives one;
+    3. grow the seed labels outward over the mask (nearest-seed flood) so the
+       shared blob is partitioned along the neck.
+    Returns a compact (labels, count) like ``label_components``.
+    """
+    base, nb = label_components(mask)
+    if nb == 0:
+        return base, 0
+    dist = _distance_transform(mask, max_dist)
+
+    # Per-component peak, broadcast back to pixels.
+    peak = np.zeros(nb + 1, np.float32)
+    np.maximum.at(peak, base.ravel(), dist.ravel())
+    peak_map = peak[base]
+    seeds_mask = (base > 0) & (dist >= np.maximum(seed_frac * peak_map, 1e-3))
+    seeds, ns = label_components(seeds_mask)
+    if ns <= nb:
+        return base, nb                     # nothing extra to split — keep CC result
+
+    # Grow seeds over the foreground (vectorised nearest-seed flood).
+    labels = seeds.copy()
+    for _ in range(max(1, max_dist) + 2):
+        unl = (mask) & (labels == 0)
+        if not unl.any():
+            break
+        up = np.zeros_like(labels); up[:-1, :] = labels[1:, :]
+        dn = np.zeros_like(labels); dn[1:, :] = labels[:-1, :]
+        lf = np.zeros_like(labels); lf[:, :-1] = labels[:, 1:]
+        rt = np.zeros_like(labels); rt[:, 1:] = labels[:, :-1]
+        cand = np.where(up > 0, up, np.where(dn > 0, dn,
+                        np.where(lf > 0, lf, rt)))
+        take = unl & (cand > 0)
+        if not take.any():
+            break
+        labels[take] = cand[take]
+    labels[~mask] = 0
+    # Compact labels to 1..k.
+    uniq = np.unique(labels)
+    uniq = uniq[uniq > 0]
+    remap = np.zeros(int(labels.max()) + 1, np.int32)
+    for i, u in enumerate(uniq, start=1):
+        remap[u] = i
+    return remap[labels], len(uniq)
+
+
 def label_components(mask: np.ndarray) -> "tuple[np.ndarray, int]":
     """8-connected connected components, pure numpy/python.
 
@@ -246,7 +314,11 @@ class ClassicalSegmenter(Segmenter):
         mask = score >= cfg.threshold
         if cfg.open_iter > 0:
             mask = _binary_open(mask, cfg.open_iter)
-        labels, n = label_components(mask)
+        if cfg.watershed:
+            labels, n = watershed_split(mask, cfg.watershed_max_dist,
+                                        cfg.watershed_seed_frac)
+        else:
+            labels, n = label_components(mask)
         if n == 0:
             return SegResult(labels=labels, detections=[])
 
