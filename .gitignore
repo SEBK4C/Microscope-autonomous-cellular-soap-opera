@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+
+# Generated artifacts / large media (keep the repo light)
+out/
+data/videos/
+*.mp4
+*.avi
+*.mov
+# keep small demo gifs/pngs that are intentionally committed under docs/
+!docs/**/*.gif
+!docs/**/*.png
